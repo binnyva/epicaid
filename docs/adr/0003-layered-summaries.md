@@ -1,0 +1,3 @@
+# Summaries are layered: Book Summaries plus current-Book Passages
+
+A Subject can have thousands of Mentions by late Books, far more than one LLM call can take. So each Summary is built from the Book Summaries of every finished Book, plus the raw Passages from the current Book up to the Reading Position, sampled if there are too many. A Book Summary covers exactly one whole Book, so it is spoiler-safe for anyone past that Book in any Reading Order and can be shared across all Readers. For Major Subjects, Book Summaries are written during Ingestion; for the rest, they are written on first need. We rejected sampling across the whole Series because it drops older events unpredictably.

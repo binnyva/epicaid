@@ -1,0 +1,21 @@
+{
+  "name": "epicaid",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.20.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "pnpm --filter @epicaid/web dev",
+    "build": "pnpm --filter @epicaid/web build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "vitest run",
+    "db:generate": "pnpm --filter @epicaid/db generate",
+    "db:migrate": "pnpm --filter @epicaid/db migrate",
+    "cli": "pnpm --filter @epicaid/cli start"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "typescript": "~6.0.3",
+    "vitest": "^5.1.0"
+  }
+}

@@ -1,0 +1,3 @@
+# The Spoiler Boundary is a set of Finished Books, not a point in a Reading Order
+
+A Reading stores which Books the Reader has finished, plus their current Book and Chapter. It doesn't store "position N in Reading Order X". Readers can switch Reading Orders mid-Series, and Malazan's popular orders interleave Esslemont's Books in different places. If we took a point in an order literally, switching orders would mark unread Books as read and spoil them. The Reading Order is only a guide for what comes next and a shortcut for filling in Finished Books. Because the boundary is a set, Readers who finished the same Books share cached Summaries, whatever order they read in.

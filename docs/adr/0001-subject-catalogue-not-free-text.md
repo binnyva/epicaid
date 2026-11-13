@@ -1,0 +1,3 @@
+# Lookups go through a prepared Subject catalogue, not free-text search
+
+Readers can only look up Subjects from a catalogue prepared for each Series, matched by fuzzy and phonetic search on Aliases. We don't search the book text for whatever they type. In series like Malazan, a name can itself be a spoiler (secret identities, later titles). The catalogue records every Chapter where each Alias appears, so a name that appears nowhere inside the Reader's Spoiler Boundary is never matched or shown. Because Readers read in different orders (see ADR 0004), a single "first appearance" Chapter isn't enough. Typing such a name returns "no match", never "not yet".
