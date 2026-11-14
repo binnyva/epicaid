@@ -1,6 +1,7 @@
 /**
  * Epic Aid admin CLI. Ingestion (ADR 0002) runs here, on the admin's machine, never on Vercel.
  */
+import path from "node:path";
 import { parseArgs } from "node:util";
 import { createDb, sql } from "@epicaid/db";
 import { DEFAULT_MODEL, ingest } from "./ingest";
@@ -67,7 +68,8 @@ switch (command) {
     }
     const model = values.model ?? process.env.EXTRACTION_MODEL ?? DEFAULT_MODEL;
     await ingest({
-      bookFolder: target,
+      // pnpm runs this from apps/cli; resolve paths from where the command was typed.
+      bookFolder: path.resolve(process.env.INIT_CWD ?? process.cwd(), target),
       seriesSlug: values.series,
       seriesName: values["series-name"],
       model,
