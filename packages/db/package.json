@@ -10,7 +10,7 @@
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "generate": "drizzle-kit generate",
-    "migrate": "drizzle-kit migrate",
+    "migrate": "tsx scripts/migrate.ts",
     "studio": "drizzle-kit studio"
   },
   "dependencies": {
@@ -19,6 +19,8 @@
   },
   "devDependencies": {
     "drizzle-kit": "^0.31.11",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "@types/pg": "^8.15.0"
   }
 }
