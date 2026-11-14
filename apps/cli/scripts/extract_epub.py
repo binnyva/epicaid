@@ -176,6 +176,9 @@ def main(epub_path: str):
     if not toc:
         sys.exit("No table of contents entries found; this EPUB needs a manual book.json.")
 
+    # Some tables of contents list a part opener after its first chapter; reading order is the spine's.
+    toc.sort(key=lambda entry: spine.index(entry[1]))
+
     # Each TOC entry owns its spine file plus any following files that have no TOC entry of their own.
     starts = [spine.index(href) for _, href in toc]
     for (label, _), a, b in zip(toc, starts, starts[1:]):
