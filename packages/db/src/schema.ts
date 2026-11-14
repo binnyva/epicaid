@@ -120,6 +120,8 @@ export const aliases = pgTable(
     name: text("name").notNull(),
     /** Only set for secret identities (ADR 0005). Null = ordinary name, joined wherever visible. */
     revealChapterId: uuid("reveal_chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+    /** Set by Ingestion when this Alias looks like a secret identity; cleared once the admin reviews it. */
+    reviewNote: text("review_note"),
   },
   (t) => [
     uniqueIndex("aliases_subject_name").on(t.subjectId, t.name),

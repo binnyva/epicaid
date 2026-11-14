@@ -45,3 +45,10 @@ Requires Node 22+ and pnpm 10 (`corepack enable`).
 1. Put the EPUB in its own folder, e.g. `0Meta/Books/<Series>/<NN-Book>/` (`0Meta/` is git-ignored, so book text never reaches GitHub).
 2. `python3 apps/cli/scripts/extract_epub.py "<folder>/<Book>.epub"` writes `extracted/book.json` and one cleaned HTML file per table-of-contents entry.
 3. Check `kind` in `book.json`: `front` and `back` matter (dramatis personae, glossaries) are skipped, and everything marked `chapter` becomes a Chapter. Fix any wrong guesses by hand.
+4. `pnpm cli ingest "<folder>" --series malazan --dry-run` shows the Chapter and Passage counts without spending anything.
+5. `pnpm cli ingest "<folder>" --series malazan --series-name "Malazan"` runs Ingestion:
+   - **Extraction**: one model call per Passage, cached in `extracted/extraction/`, so re-runs only pay for Chapters not yet done.
+   - **Merge**: names become Subjects and Aliases. Likely secret identities get a Reveal Chapter (ADR 0005).
+   - **Load**: writes the Book into Neon as a Draft. Re-running replaces that Book's Chapters and Passages.
+   - **Book Summaries** for Major Subjects (25+ Passages by default). Existing ones are kept unless you pass `--resummarise`.
+6. Read `extracted/ingest-report.md`: Subjects by size, and every flagged secret identity to check.
