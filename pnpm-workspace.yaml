@@ -2,9 +2,8 @@ packages:
   - "apps/*"
   - "packages/*"
 
-onlyBuiltDependencies:
-  - esbuild
-  - sharp
-
 # Skip packages published in the last 24 hours (matches newer pnpm defaults).
 minimumReleaseAge: 1440
+
+allowBuilds:
+  esbuild: true
