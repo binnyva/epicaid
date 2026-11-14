@@ -39,3 +39,9 @@ Requires Node 22+ and pnpm 10 (`corepack enable`).
 | `pnpm typecheck` | Type-check every package |
 | `pnpm db:generate` | Write a new migration after changing `packages/db/src/schema.ts` |
 | `pnpm db:migrate` | Apply migrations to the database in `DATABASE_URL_UNPOOLED` |
+
+## Adding a Book
+
+1. Put the EPUB in its own folder, e.g. `0Meta/Books/<Series>/<NN-Book>/` (`0Meta/` is git-ignored, so book text never reaches GitHub).
+2. `python3 apps/cli/scripts/extract_epub.py "<folder>/<Book>.epub"` writes `extracted/book.json` and one cleaned HTML file per table-of-contents entry.
+3. Check `kind` in `book.json`: `front` and `back` matter (dramatis personae, glossaries) are skipped, and everything marked `chapter` becomes a Chapter. Fix any wrong guesses by hand.
