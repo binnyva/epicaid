@@ -42,60 +42,71 @@ export async function summariseSubjects(options: {
       }),
       schema: bookSummarySchema,
       schemaName: "book_summary",
-      maxTokens: 1200,
+      // Generous, because reasoning models spend tokens before writing the summary.
+      maxTokens: 8000,
     });
     await options.onUsage(usage);
     return data.summary.trim();
   };
 
   let written = 0;
+  const failed: string[] = [];
   await mapPool(options.subjects, options.concurrency, async ({ merged, subjectId }) => {
-    const seen = new Set<string>();
-    const items: { chapterLabel: string; text: string }[] = [];
-    for (const m of [...merged.mentions].sort((a, b) => a.chapterIndex - b.chapterIndex || a.passageIndex - b.passageIndex)) {
-      const key = `${m.chapterIndex}:${m.passageIndex}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      items.push({
-        chapterLabel: options.book.chapters[m.chapterIndex]?.label ?? `Chapter ${m.chapterIndex}`,
-        text: options.passagesByChapter[m.chapterIndex]?.[m.passageIndex] ?? "",
-      });
-    }
-
-    // Split into parts small enough for one call; with more than one part, summarise the summaries.
-    const parts: (typeof items)[] = [[]];
-    let words = 0;
-    for (const item of items) {
-      const n = wordCount(item.text);
-      if (words + n > MAX_WORDS_PER_CALL && (parts.at(-1)?.length ?? 0) > 0) {
-        parts.push([]);
-        words = 0;
+    try {
+      const seen = new Set<string>();
+      const items: { chapterLabel: string; text: string }[] = [];
+      for (const m of [...merged.mentions].sort((a, b) => a.chapterIndex - b.chapterIndex || a.passageIndex - b.passageIndex)) {
+        const key = `${m.chapterIndex}:${m.passageIndex}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        items.push({
+          chapterLabel: options.book.chapters[m.chapterIndex]?.label ?? `Chapter ${m.chapterIndex}`,
+          text: options.passagesByChapter[m.chapterIndex]?.[m.passageIndex] ?? "",
+        });
       }
-      parts.at(-1)?.push(item);
-      words += n;
-    }
-    let summary: string;
-    if (parts.length === 1) {
-      summary = await call(merged, items);
-    } else {
-      const partial = [];
-      for (const part of parts) {
-        const first = part[0]?.chapterLabel;
-        const last = part.at(-1)?.chapterLabel;
-        partial.push({ chapterLabel: `Notes on ${first} to ${last}`, text: await call(merged, part) });
-      }
-      summary = await call(merged, partial);
-    }
 
-    await options.db
-      .insert(schema.bookSummaries)
-      .values({ subjectId, bookId: options.bookId, text: summary, model: options.model, promptVersion: BOOK_SUMMARY_PROMPT_VERSION })
-      .onConflictDoUpdate({
-        target: [schema.bookSummaries.subjectId, schema.bookSummaries.bookId, schema.bookSummaries.model, schema.bookSummaries.promptVersion],
-        set: { text: summary, createdAt: new Date() },
-      });
-    written++;
-    options.log(`  summarised ${merged.name} (${items.length} passages)`);
+      // Split into parts small enough for one call; with more than one part, summarise the summaries.
+      const parts: (typeof items)[] = [[]];
+      let words = 0;
+      for (const item of items) {
+        const n = wordCount(item.text);
+        if (words + n > MAX_WORDS_PER_CALL && (parts.at(-1)?.length ?? 0) > 0) {
+          parts.push([]);
+          words = 0;
+        }
+        parts.at(-1)?.push(item);
+        words += n;
+      }
+      let summary: string;
+      if (parts.length === 1) {
+        summary = await call(merged, items);
+      } else {
+        const partial = [];
+        for (const part of parts) {
+          const first = part[0]?.chapterLabel;
+          const last = part.at(-1)?.chapterLabel;
+          partial.push({ chapterLabel: `Notes on ${first} to ${last}`, text: await call(merged, part) });
+        }
+        summary = await call(merged, partial);
+      }
+
+      await options.db
+        .insert(schema.bookSummaries)
+        .values({ subjectId, bookId: options.bookId, text: summary, model: options.model, promptVersion: BOOK_SUMMARY_PROMPT_VERSION })
+        .onConflictDoUpdate({
+          target: [schema.bookSummaries.subjectId, schema.bookSummaries.bookId, schema.bookSummaries.model, schema.bookSummaries.promptVersion],
+          set: { text: summary, createdAt: new Date() },
+        });
+      written++;
+      options.log(`  summarised ${merged.name} (${items.length} passages)`);
+    } catch (error) {
+      // One bad reply shouldn't stop the rest; re-running retries only the missing ones.
+      failed.push(merged.name);
+      options.log(`  FAILED ${merged.name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   });
+  if (failed.length) {
+    options.log(`${failed.length} Book Summaries failed (${failed.join(", ")}). Re-run the same command to retry just those.`);
+  }
   return written;
 }

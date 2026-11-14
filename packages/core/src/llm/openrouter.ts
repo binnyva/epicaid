@@ -35,7 +35,7 @@ export class LlmFatalError extends LlmError {}
 
 interface OpenRouterResponse {
   model?: string;
-  choices?: { message?: { content?: string | null } }[];
+  choices?: { finish_reason?: string | null; message?: { content?: string | null } }[];
   usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
   error?: { message?: string };
 }
@@ -99,7 +99,8 @@ export function createOpenRouterClient(options: {
         }
         const content = json.choices?.[0]?.message?.content;
         if (!content) {
-          lastError = new LlmError("Empty reply");
+          // Reasoning models can spend the whole token budget thinking and return no content.
+          lastError = new LlmError(`Empty reply (finish_reason: ${json.choices?.[0]?.finish_reason ?? "unknown"})`);
           continue;
         }
         const parsed = req.schema.safeParse(parseJsonReply(content));
