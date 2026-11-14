@@ -80,10 +80,53 @@ def clean_html(raw: str) -> str:
     return cleaner.result()
 
 
+def unspace_small_caps(text: str) -> str:
+    """Undoes small caps that converters split into a capital plus the rest: "P Rologue", "B OOK O NE" -> "Prologue", "BOOK ONE"."""
+    words, out, i = text.split(" "), [], 0
+    while i < len(words):
+        w, nxt = words[i], words[i + 1] if i + 1 < len(words) else ""
+        if re.fullmatch(r"[A-Z]", w) and (re.fullmatch(r"[A-Z]{2,}[’'S]*", nxt) or (w not in "AI" and re.fullmatch(r"[A-Z][a-z]+", nxt))):
+            out.append(w + (nxt.lower() if nxt[1:2].islower() else nxt))
+            i += 2
+        else:
+            out.append(w)
+            i += 1
+    return " ".join(out)
+
+
 def nice_label(text: str) -> str:
-    text = re.sub(r"\s+", " ", text).strip()
+    text = unspace_small_caps(re.sub(r"\s+", " ", text).strip())
+    text = " ".join(w.title() if len(w) > 1 and w.isupper() else w for w in text.split(" "))
+    text = re.sub(r"([’'])S\b", r"\1s", text)
     text = re.sub(r"\s*[–—-]\s*", " – ", text) if re.match(r"^(book|part)\b", text, re.I) else text
-    return text.title() if text.isupper() else text
+    return text
+
+
+CHAPTER_HEADING = re.compile(r"<(h[1-4])>((?:(?!</\1>).)*?)</\1>", re.S)
+CHAPTER_TEXT = re.compile(r"^(chapter\b|prologue$|epilogue$)", re.I)
+
+
+def split_chapters(body: str, label: str):
+    """
+    Some EPUBs only list parts in the table of contents ("Book One"), with chapters as headings inside.
+    Returns [(heading or None, html)]: the text before the first in-text chapter heading, then one piece per chapter.
+    An entry that simply starts with its own heading comes back whole.
+    """
+    cuts = []
+    for m in CHAPTER_HEADING.finditer(body):
+        text = re.sub(r"<[^>]+>", "", m.group(2)).strip()
+        if CHAPTER_TEXT.match(text):
+            cuts.append((m.start(), text))
+    if cuts and nice_label(cuts[0][1]).lower() == label.lower():
+        cuts = cuts[1:]  # the entry's own title heading
+    if cuts and len(cuts) == 1 and len(re.sub(r"<[^>]+>", " ", body[: cuts[0][0]]).split()) < 5:
+        cuts = []  # one heading at the very top: the entry is that chapter
+    if not cuts:
+        return [(None, body)]
+    pieces = [(None, body[: cuts[0][0]])]
+    for (start, text), nxt in zip(cuts, [c[0] for c in cuts[1:]] + [len(body)]):
+        pieces.append((text, body[start:nxt]))
+    return pieces
 
 
 def slug(text: str) -> str:
@@ -139,6 +182,7 @@ def main(epub_path: str):
         if a == b:
             print(f"warning: '{label}' shares a file with the next entry; they are kept together", file=sys.stderr)
 
+    toc = [(nice_label(label), href) for label, href in toc]
     labels = [label for label, _ in toc]
     first = next((i for i, l in enumerate(labels) if STORY_START.match(l)), 0)
     last = max((i for i, l in enumerate(labels) if STORY_END.match(l)), default=len(labels) - 1)
@@ -147,7 +191,7 @@ def main(epub_path: str):
     html_dir = out_dir / "html"
     html_dir.mkdir(parents=True, exist_ok=True)
 
-    entries, chapter_index, seen = [], 0, set()
+    entries, chapter_index, seen, file_no = [], 0, set(), 0
     for n, ((label, href), start) in enumerate(zip(toc, starts)):
         if start in seen:
             continue
@@ -155,18 +199,27 @@ def main(epub_path: str):
         end = next((s for s in starts[n + 1:] if s > start), len(spine))
         body = "".join(clean_html(z.read(posixpath.join(opf_dir, f)).decode("utf-8", "replace")) for f in spine[start:end])
         kind = "front" if n < first else "back" if n > last else "chapter"
-        name = f"{n:03d}-{slug(label)}.html"
-        title = html.escape(nice_label(label))
-        (html_dir / name).write_text(
-            f'<!doctype html>\n<html><head><meta charset="utf-8"><title>{title}</title></head>\n<body>\n{body}</body></html>\n',
-            encoding="utf-8",
-        )
-        entry = {"file": f"html/{name}", "kind": kind, "label": nice_label(label), "title": None,
-                 "sourceFiles": spine[start:end], "words": len(re.sub(r"<[^>]+>", " ", body).split())}
-        if kind == "chapter":
-            entry["index"] = chapter_index
-            chapter_index += 1
-        entries.append(entry)
+        pieces = split_chapters(body, label) if kind == "chapter" else [(None, body)]
+        if len(pieces) > 1:
+            print(f"note: split '{label}' into {len(pieces) - 1} chapters found as headings inside it", file=sys.stderr)
+        for heading, piece in pieces:
+            piece_label = nice_label(heading) if heading else label
+            words = len(re.sub(r"<[^>]+>", " ", piece).split())
+            if heading is None and len(pieces) > 1 and words == 0:
+                continue
+            name = f"{file_no:03d}-{slug(piece_label)}.html"
+            file_no += 1
+            title = html.escape(piece_label)
+            (html_dir / name).write_text(
+                f'<!doctype html>\n<html><head><meta charset="utf-8"><title>{title}</title></head>\n<body>\n{piece}</body></html>\n',
+                encoding="utf-8",
+            )
+            entry = {"file": f"html/{name}", "kind": kind, "label": piece_label, "title": None,
+                     "sourceFiles": spine[start:end], "words": words}
+            if kind == "chapter":
+                entry["index"] = chapter_index
+                chapter_index += 1
+            entries.append(entry)
 
     book = {
         "title": meta("title"),
