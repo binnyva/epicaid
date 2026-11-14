@@ -3,7 +3,8 @@
  */
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { createDb, sql } from "@epicaid/db";
+import { createDb, eq, schema, sql } from "@epicaid/db";
+import { createNodeDb } from "@epicaid/db/node";
 import { DEFAULT_MODEL, ingest } from "./ingest";
 
 const usage = `Usage: pnpm cli <command>
@@ -11,6 +12,8 @@ const usage = `Usage: pnpm cli <command>
 Commands:
   check                      Connect to the database and confirm migrations have run
   ingest <book-folder>       Ingest an extracted Book (see README) into a Series, as a Draft
+  delete-series <slug> --yes Delete a Draft Series and everything in it (re-ingesting reuses the
+                             extraction cache, so this costs nothing to undo except Book Summaries)
 
 Options for ingest:
   --series <slug>            Series to add the Book to, e.g. malazan (required)
@@ -39,6 +42,23 @@ async function check() {
   }
 }
 
+async function deleteSeries(slug: string) {
+  const { db, close } = createNodeDb();
+  try {
+    const [row] = await db.select().from(schema.series).where(eq(schema.series.slug, slug));
+    if (!row) return console.log(`No Series "${slug}".`);
+    if (row.status === "published") {
+      console.error(`"${slug}" is published; unpublish it in admin first.`);
+      process.exitCode = 1;
+      return;
+    }
+    await db.delete(schema.series).where(eq(schema.series.id, row.id));
+    console.log(`Deleted Draft Series "${row.name}" and its Books, Subjects and Book Summaries.`);
+  } finally {
+    await close();
+  }
+}
+
 const { positionals, values } = parseArgs({
   allowPositionals: true,
   options: {
@@ -52,6 +72,7 @@ const { positionals, values } = parseArgs({
     "skip-summaries": { type: "boolean", default: false },
     resummarise: { type: "boolean", default: false },
     "dry-run": { type: "boolean", default: false },
+    yes: { type: "boolean", default: false },
   },
 });
 
@@ -59,6 +80,14 @@ const [command, target] = positionals;
 switch (command) {
   case "check":
     await check();
+    break;
+  case "delete-series":
+    if (!target || !values.yes) {
+      console.error("Usage: pnpm cli delete-series <slug> --yes");
+      process.exitCode = 1;
+    } else {
+      await deleteSeries(target);
+    }
     break;
   case "ingest": {
     if (!target || !values.series) {

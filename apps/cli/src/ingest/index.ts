@@ -69,8 +69,9 @@ export async function ingest(options: IngestOptions) {
       log,
     });
 
-    const subjects = mergeSubjects(extraction);
-    const report = await writeReport(book, subjects, options.majorThreshold);
+    const merged = mergeSubjects(extraction);
+    const { subjects } = merged;
+    const report = await writeReport(book, merged, options.majorThreshold);
     log(`Merged into ${subjects.length} Subjects. Review report: ${report}`);
 
     const loaded = await loadBook(db, {

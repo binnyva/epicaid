@@ -2,9 +2,10 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ExtractedBook } from "./book";
-import { passageCount, type MergedSubject } from "./merge";
+import { passageCount, type MergeResult } from "./merge";
 
-export async function writeReport(book: ExtractedBook, subjects: MergedSubject[], majorThreshold: number): Promise<string> {
+export async function writeReport(book: ExtractedBook, merged: MergeResult, majorThreshold: number): Promise<string> {
+  const { subjects, unmergedLinks, genericNames } = merged;
   const file = path.join(book.folder, "extracted", "ingest-report.md");
   const label = (i: number | null) => (i === null ? "" : (book.chapters[i]?.label ?? `#${i}`));
   const majors = subjects.filter((s) => passageCount(s) >= majorThreshold);
@@ -26,6 +27,12 @@ export async function writeReport(book: ExtractedBook, subjects: MergedSubject[]
       ({ subject, alias }) => `- **${alias.name}** → ${subject.name}, Reveal: ${label(alias.revealChapterIndex)}. ${alias.reviewNote}`,
     ),
     "",
+    "## Links the text states that were not applied",
+    "",
+    unmergedLinks.length ? "Merge these by hand in admin if they really are the same." : "None.",
+    "",
+    ...unmergedLinks.map((l) => `- ${l.names.join(" = ")} (${label(l.chapterIndex)}; ${l.reason}): "${l.evidence}"`),
+    "",
     "## Subjects by number of Passages",
     "",
     "| Subject | Kind | Passages | Aliases |",
@@ -37,6 +44,10 @@ export async function writeReport(book: ExtractedBook, subjects: MergedSubject[]
     "## Mentioned once",
     "",
     singles.map((s) => s.name).join(", "),
+    "",
+    "## Role names left out",
+    "",
+    genericNames.join(", "),
     "",
   ];
   await writeFile(file, lines.join("\n"));

@@ -14,21 +14,46 @@ const TITLES = new Set(
   (
     "the a an lord lady sir master mistress captain sergeant corporal lieutenant commander fist high adjunct " +
     "mage wizard sorcerer sorceress priest priestess king queen prince princess emperor empress councillor " +
-    "councilman bridgeburner old young mother father brother sister elder"
+    "councilman bridgeburner"
   ).split(" "),
 );
 
-/** Lower-case name with leading titles dropped; "Captain Ganoes Paran" → "ganoes paran". */
-export function normaliseName(name: string): string {
-  const tokens = name
+/** Words that, alone or only with titles, name a role rather than one entity ("the Adjunct", "High Fist"). */
+const GENERIC = new Set([
+  ...TITLES,
+  ..."sarge staff warlord alchemist uncle aunt tyrant claw claws empire city god goddess of old young mother father brother sister elder".split(" "),
+]);
+
+const tokensOf = (name: string) =>
+  name
     .toLowerCase()
     .replace(/[’]/g, "'")
     .replace(/[^\p{L}\p{N}' -]/gu, " ")
     .split(/\s+/)
     .filter(Boolean);
+
+/** Lower-case name with leading titles dropped; "Captain Ganoes Paran" → "ganoes paran". */
+export function normaliseName(name: string): string {
+  const tokens = tokensOf(name);
   while (tokens.length > 1 && TITLES.has(tokens[0] as string)) tokens.shift();
   return tokens.join(" ");
 }
+
+/** True for names made only of titles and role words, which would join unrelated Subjects. */
+export function isGenericName(name: string): boolean {
+  return tokensOf(name).every((t) => GENERIC.has(t));
+}
+
+/** A text-stated link that was not applied automatically, for the admin to decide. */
+export interface UnmergedLink {
+  names: string[];
+  chapterIndex: number;
+  evidence: string;
+  reason: string;
+}
+
+/** A late link joins two Subjects automatically only if the smaller one is this small (in Passages). */
+const LATE_LINK_MAX_PASSAGES = 8;
 
 interface Position {
   chapterIndex: number;
@@ -67,17 +92,30 @@ export interface MergedSubject {
   mentions: (Position & { alias: string })[];
 }
 
-export function mergeSubjects(chapters: ChapterExtraction[]): MergedSubject[] {
+export interface MergeResult {
+  subjects: MergedSubject[];
+  /** Links the text states but that were not applied; listed in the review report. */
+  unmergedLinks: UnmergedLink[];
+  /** Role-only names ("the Adjunct", "High Fist") left out of the catalogue. */
+  genericNames: string[];
+}
+
+export function mergeSubjects(chapters: ChapterExtraction[]): MergeResult {
   const firstSeen = new Map<string, Position>();
   const counts = new Map<string, number>();
   const kinds = new Map<string, Map<SubjectKind, number>>();
   const mentions: (Position & { alias: string })[] = [];
   const links: (Position & { names: string[]; evidence: string })[] = [];
+  const genericNames = new Set<string>();
 
   for (const chapter of chapters) {
     for (const passage of chapter.passages) {
       const pos = { chapterIndex: chapter.chapterIndex, passageIndex: passage.passageIndex };
       for (const { name, kind } of passage.mentions) {
+        if (isGenericName(name)) {
+          genericNames.add(name);
+          continue;
+        }
         if (!firstSeen.has(name)) firstSeen.set(name, pos);
         counts.set(name, (counts.get(name) ?? 0) + 1);
         const k = kinds.get(name) ?? new Map<SubjectKind, number>();
@@ -85,53 +123,86 @@ export function mergeSubjects(chapters: ChapterExtraction[]): MergedSubject[] {
         kinds.set(name, k);
         mentions.push({ ...pos, alias: name });
       }
-      for (const group of passage.sameEntity) links.push({ ...pos, ...group });
+      for (const group of passage.sameEntity) {
+        const names = group.names.filter((n) => !isGenericName(n));
+        if (names.length >= 2) links.push({ ...pos, names, evidence: group.evidence });
+      }
     }
   }
+  const kindOf = (name: string): SubjectKind =>
+    [...(kinds.get(name) ?? new Map<SubjectKind, number>()).entries()].sort((x, y) => y[1] - x[1])[0]?.[0] ?? "other";
 
   // 1. Name groups: names with the same normalised form, plus a lone given/family name that
-  //    matches exactly one longer name ("Paran" → "Ganoes Paran").
+  //    matches exactly one longer name of the same kind ("Paran" → "Ganoes Paran").
   const byNorm = new UnionFind();
   const names = [...firstSeen.keys()];
   for (const name of names) byNorm.union(`n:${normaliseName(name)}`, name);
-  const fullNorms = [...new Set(names.map(normaliseName))].filter((n) => n.includes(" "));
+  const fullNames = names.filter((n) => normaliseName(n).includes(" "));
   for (const name of names) {
     const norm = normaliseName(name);
     if (norm.includes(" ")) continue;
-    const matches = fullNorms.filter((full) => full.split(" ").includes(norm));
-    if (matches.length === 1) byNorm.union(`n:${matches[0]}`, name);
+    const matches = new Set(
+      fullNames
+        .filter((full) => kindOf(full) === kindOf(name) && normaliseName(full).split(" ").includes(norm))
+        .map(normaliseName),
+    );
+    if (matches.size === 1) byNorm.union(`n:${[...matches][0]}`, name);
   }
   const groupOf = (name: string) => byNorm.find(name);
   const groupFirstSeen = new Map<string, Position>();
+  const groupKindVotes = new Map<string, Map<SubjectKind, number>>();
   for (const name of names) {
     const g = groupOf(name);
     const pos = firstSeen.get(name) as Position;
     const current = groupFirstSeen.get(g);
     if (!current || before(pos, current)) groupFirstSeen.set(g, pos);
+    const votes = groupKindVotes.get(g) ?? new Map<SubjectKind, number>();
+    votes.set(kindOf(name), (votes.get(kindOf(name)) ?? 0) + (counts.get(name) ?? 0));
+    groupKindVotes.set(g, votes);
   }
+  const groupKind = (g: string) => [...(groupKindVotes.get(g) ?? [])].sort((x, y) => y[1] - x[1])[0]?.[0];
 
-  // 2. Links from the text, in reading order. A link between two groups that were both already
-  //    known is a likely reveal; the later-introduced group gets the Reveal.
+  // 2. Links from the text, in reading order, applied only between groups of the same kind
+  //    (never a person with their people, home or weapon). A link between two groups that were
+  //    both already known is a likely reveal: it joins automatically only when one side is small,
+  //    and the later-introduced side gets the Reveal. Bigger late links go to the report instead.
   const subjects = new UnionFind();
-  for (const name of names) subjects.union(groupOf(name), groupOf(name));
+  const clusterSize = new Map<string, number>();
+  for (const name of names) {
+    const g = groupOf(name);
+    subjects.union(g, g);
+    clusterSize.set(g, (clusterSize.get(g) ?? 0) + (counts.get(name) ?? 0));
+  }
+  const sizeOf = (g: string) => clusterSize.get(subjects.find(g)) ?? 0;
   const reveals = new Map<string, { chapterIndex: number; note: string }>();
+  const unmergedLinks: UnmergedLink[] = [];
   links.sort((a, b) => (before(a, b) ? -1 : before(b, a) ? 1 : 0));
   for (const link of links) {
-    const groups = [...new Set(link.names.map(groupOf))];
+    const groups = [...new Set(link.names.filter((n) => firstSeen.has(n)).map(groupOf))];
     for (let i = 1; i < groups.length; i++) {
       const [a, b] = [groups[0] as string, groups[i] as string];
       if (subjects.find(a) === subjects.find(b)) continue;
+      if (groupKind(a) !== groupKind(b)) {
+        unmergedLinks.push({ ...link, reason: `different kinds (${groupKind(a)}, ${groupKind(b)})` });
+        continue;
+      }
       const fa = groupFirstSeen.get(a) as Position;
       const fb = groupFirstSeen.get(b) as Position;
       if (before(fa, link) && before(fb, link)) {
+        if (Math.min(sizeOf(a), sizeOf(b)) > LATE_LINK_MAX_PASSAGES) {
+          unmergedLinks.push({ ...link, reason: "both already well known; possible reveal, check by hand" });
+          continue;
+        }
         const later = before(fa, fb) ? b : a;
-        const earlierName = link.names.find((n) => groupOf(n) !== later) ?? "";
+        const earlierName = link.names.find((n) => firstSeen.has(n) && groupOf(n) !== later) ?? "";
         reveals.set(later, {
           chapterIndex: link.chapterIndex,
           note: `Joined to "${earlierName}" in chapter ${link.chapterIndex}: "${link.evidence}"`,
         });
       }
+      const merged = sizeOf(a) + sizeOf(b);
       subjects.union(a, b);
+      clusterSize.set(subjects.find(a), merged);
     }
   }
 
@@ -168,7 +239,11 @@ export function mergeSubjects(chapters: ChapterExtraction[]): MergedSubject[] {
       mentions: members.flatMap((name) => mentionsByName.get(name) ?? []),
     });
   }
-  return result.sort((a, b) => b.mentions.length - a.mentions.length);
+  return {
+    subjects: result.sort((a, b) => b.mentions.length - a.mentions.length),
+    unmergedLinks,
+    genericNames: [...genericNames].sort(),
+  };
 }
 
 /** Number of distinct Passages that mention a Subject. */
