@@ -28,7 +28,23 @@ Requires Node 22+ and pnpm 10 (`corepack enable`).
 
 1. Put the folder in a GitHub repository (`git init`, commit, push).
 2. In Vercel, import the repository and set **Root Directory** to `apps/web`. Vercel detects the pnpm workspace.
-3. Add `DATABASE_URL`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` and `OPENROUTER_API_KEY` as environment variables.
+3. Add `DATABASE_URL`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `OPENROUTER_API_KEY`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `AUTH_SECRET` and `ADMIN_EMAIL` as environment variables.
+
+## Sign-in
+
+Google only, invite-only. In Google Cloud, create an OAuth client of type *Web application* with the redirect URIs `http://localhost:3000/api/auth/callback/google` and `https://<your-domain>/api/auth/callback/google`. While the consent screen is in *Testing*, each Reader must also be a test user there.
+
+`ADMIN_EMAIL` can always sign in and is always an admin. Everyone else must be on the invite list at `/admin/readers`. Sessions are signed cookies (`AUTH_SECRET`), valid for 30 days; removing someone from the invite list locks them out on their next request.
+
+## Admin
+
+`/admin` lists each Series. From there:
+
+- **Series**: rename, publish (also publishes its Books), and edit Reading Orders (number the Books; leave a box empty to leave a Book out).
+- **Subjects**: search the catalogue, rename, change kind, mark Major, add an Alias, set or clear an Alias's Reveal Chapter, split an Alias into its own Subject, merge another Subject in, delete.
+- **To review**: Aliases that Ingestion flagged as possible secret identities. Confirm the Reveal, change it, or split the Alias off.
+
+Re-ingesting a Book replaces its Chapters, which clears Reveal Chapters set in that Book. Do catalogue fixes once a Book's Ingestion is final. After merging Subjects, refresh their Book Summaries with `pnpm cli ingest … --resummarise`.
 
 ## Everyday commands
 

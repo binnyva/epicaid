@@ -1,6 +1,6 @@
 /**
  * Database schema. Table and column names follow the glossary in CONTEXT.md.
- * Auth.js account and session tables are added in Phase 2.
+ * Sign-in needs no tables of its own: sessions are signed cookies (apps/web/lib/session.ts).
  */
 import { sql } from "drizzle-orm";
 import {

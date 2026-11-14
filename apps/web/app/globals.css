@@ -24,3 +24,144 @@ main {
 .muted {
   color: var(--muted);
 }
+a {
+  color: inherit;
+}
+.small {
+  font-size: 0.85rem;
+}
+.error,
+.flash {
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--accent);
+  background: var(--panel);
+}
+.error {
+  border-color: #c0392b;
+}
+:root {
+  --accent: #8a6d3b;
+  --panel: #f1eee7;
+  --line: #e2ddd3;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --accent: #d1b37a;
+    --panel: #22201d;
+    --line: #34312c;
+  }
+}
+button,
+.button,
+input,
+select {
+  font: inherit;
+  font-size: 0.95rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0.3rem 0.55rem;
+}
+button,
+.button {
+  cursor: pointer;
+  background: var(--panel);
+  text-decoration: none;
+  display: inline-block;
+}
+button.danger {
+  color: #c0392b;
+}
+button.link {
+  border: 0;
+  background: none;
+  padding: 0;
+  text-decoration: underline;
+  color: var(--muted);
+}
+.admin main {
+  max-width: 64rem;
+  padding: 1.5rem 1rem 4rem;
+}
+.admin nav {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--line);
+}
+.admin nav a {
+  text-decoration: none;
+}
+.spacer {
+  flex: 1;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.5rem 0 1rem;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+td.pos {
+  width: 4rem;
+}
+.row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0.5rem 0;
+}
+.row form {
+  margin: 0;
+}
+.wide {
+  min-width: min(28rem, 100%);
+}
+label {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+.card {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+}
+.badge {
+  font-size: 0.75rem;
+  padding: 0.05rem 0.4rem;
+  margin-left: 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+}
+.badge.published {
+  border-color: #2e7d32;
+  color: #2e7d32;
+}
+.badge.review,
+tr.flagged td:first-child {
+  border-left: 3px solid var(--accent);
+}
+.prewrap {
+  white-space: pre-wrap;
+}
+@media (max-width: 40rem) {
+  .admin table {
+    display: block;
+    overflow-x: auto;
+  }
+}
