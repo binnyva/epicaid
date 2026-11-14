@@ -5,7 +5,7 @@ import { z } from "zod";
 
 const entrySchema = z.object({
   file: z.string(),
-  kind: z.enum(["front", "chapter", "back"]),
+  kind: z.enum(["front", "part", "chapter", "back"]),
   label: z.string(),
   title: z.string().nullable(),
   index: z.number().int().optional(),
@@ -23,6 +23,8 @@ export interface ExtractedChapter {
   index: number;
   label: string;
   title: string | null;
+  /** The part ("Book Two – Whirlwind") this Chapter is in, if the Book has parts. */
+  part: string | null;
   html: string;
 }
 
@@ -41,15 +43,26 @@ export async function readExtractedBook(bookFolder: string): Promise<ExtractedBo
   const dir = path.join(folder, "extracted");
   const raw = JSON.parse(await readFile(path.join(dir, "book.json"), "utf8"));
   const book = bookJsonSchema.parse(raw);
-  const chapterEntries = book.entries.filter((e) => e.kind === "chapter");
-  const chapters = await Promise.all(
-    chapterEntries.map(async (entry, index) => ({
-      index,
-      label: entry.label,
-      title: entry.title,
-      html: await readFile(path.join(dir, entry.file), "utf8"),
-    })),
-  );
+  // A part opener (title page and epigraph) is not something a Reader finishes, so its text joins the next Chapter.
+  const chapters: ExtractedChapter[] = [];
+  let part: string | null = null;
+  let pendingHtml = "";
+  for (const entry of book.entries) {
+    if (entry.kind === "part") {
+      part = entry.label;
+      pendingHtml += bodyOf(await readFile(path.join(dir, entry.file), "utf8"));
+    } else if (entry.kind === "chapter") {
+      const html = await readFile(path.join(dir, entry.file), "utf8");
+      chapters.push({
+        index: chapters.length,
+        label: entry.label,
+        title: entry.title,
+        part,
+        html: pendingHtml ? html.replace(/<body>/i, `<body>\n${pendingHtml}`) : html,
+      });
+      pendingHtml = "";
+    }
+  }
   return {
     folder,
     slug: slugify(path.basename(folder)),
@@ -60,6 +73,8 @@ export async function readExtractedBook(bookFolder: string): Promise<ExtractedBo
     chapters,
   };
 }
+
+const bodyOf = (html: string) => /<body>([\s\S]*)<\/body>/i.exec(html)?.[1] ?? html;
 
 export function slugify(text: string): string {
   return text

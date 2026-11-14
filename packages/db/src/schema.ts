@@ -61,6 +61,8 @@ export const chapters = pgTable(
     /** "Prologue", "Chapter 7", "Interlude" … */
     label: text("label").notNull(),
     title: text("title"),
+    /** The part the Chapter is in ("Book Two – Whirlwind"), for grouping in the Chapter picker. */
+    part: text("part"),
   },
   (t) => [uniqueIndex("chapters_book_index").on(t.bookId, t.index)],
 );

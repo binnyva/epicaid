@@ -59,7 +59,7 @@ export async function loadBook(
     // Chapters and Passages.
     const chapterRows = await tx
       .insert(chapters)
-      .values(input.book.chapters.map((c) => ({ bookId, index: c.index, label: c.label, title: c.title })))
+      .values(input.book.chapters.map((c) => ({ bookId, index: c.index, label: c.label, title: c.title, part: c.part })))
       .returning({ id: chapters.id, index: chapters.index });
     const chapterIds = new Map(chapterRows.map((r) => [r.index, r.id]));
     const passageIds = new Map<string, string>();

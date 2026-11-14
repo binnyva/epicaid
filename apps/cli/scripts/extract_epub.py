@@ -12,7 +12,8 @@ Writes, next to the EPUB:
 
 Every TOC entry gets a `kind`:
   front   - before the story starts (acknowledgements, dramatis personae, epigraphs). Not ingested.
-  chapter - story text, including prologues, part openers and epilogues. These become Chapters.
+  part    - a part opener ("Book Two"): title page and epigraph. Ingestion folds it into the next Chapter.
+  chapter - story text, including prologues and epilogues. These become Chapters.
   back    - after the story ends (glossaries, afterwords, appendices). Not ingested; they spoil.
 
 Uses only the Python standard library.
@@ -102,6 +103,7 @@ def nice_label(text: str) -> str:
     return text
 
 
+PART_OPENER = re.compile(r"^(book|part)\s+\w+", re.I)
 CHAPTER_HEADING = re.compile(r"<(h[1-4])>((?:(?!</\1>).)*?)</\1>", re.S)
 CHAPTER_TEXT = re.compile(r"^(chapter\b|prologue$|epilogue$)", re.I)
 
@@ -210,6 +212,7 @@ def main(epub_path: str):
             words = len(re.sub(r"<[^>]+>", " ", piece).split())
             if heading is None and len(pieces) > 1 and words == 0:
                 continue
+            piece_kind = "part" if kind == "chapter" and PART_OPENER.match(piece_label) and words < 1500 else kind
             name = f"{file_no:03d}-{slug(piece_label)}.html"
             file_no += 1
             title = html.escape(piece_label)
@@ -217,9 +220,9 @@ def main(epub_path: str):
                 f'<!doctype html>\n<html><head><meta charset="utf-8"><title>{title}</title></head>\n<body>\n{piece}</body></html>\n',
                 encoding="utf-8",
             )
-            entry = {"file": f"html/{name}", "kind": kind, "label": piece_label, "title": None,
+            entry = {"file": f"html/{name}", "kind": piece_kind, "label": piece_label, "title": None,
                      "sourceFiles": spine[start:end], "words": words}
-            if kind == "chapter":
+            if piece_kind == "chapter":
                 entry["index"] = chapter_index
                 chapter_index += 1
             entries.append(entry)
@@ -237,7 +240,7 @@ def main(epub_path: str):
 
     for e in entries:
         print(f"{e['kind']:8} {str(e.get('index', '')):>3}  {e['label'][:40]:40} {e['words']:>7} words")
-    print(f"\n{chapter_index} chapters, {sum(e['words'] for e in entries if e['kind'] == 'chapter'):,} words of story -> {out_dir}")
+    print(f"\n{chapter_index} chapters, {sum(e['kind'] == 'part' for e in entries)} part openers folded into them, {sum(e['words'] for e in entries if e['kind'] == 'chapter'):,} words of story -> {out_dir}")
 
 
 if __name__ == "__main__":

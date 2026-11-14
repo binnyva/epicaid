@@ -8,3 +8,4 @@ dist
 *.tsbuildinfo
 .vercel
 0Meta/
+__pycache__/

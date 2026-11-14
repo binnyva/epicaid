@@ -74,3 +74,29 @@ describe("extractBook", () => {
     expect(second).toEqual(first);
   });
 });
+
+describe("cacheMatches", async () => {
+  const { cacheMatches, chapterTextHash } = await import("./extract");
+  const passages = ["Kruppe waddled in.", "Crokus ran."];
+  const legacy = {
+    chapterIndex: 7,
+    passageCount: 2,
+    passages: [
+      { passageIndex: 0, mentions: [{ name: "Kruppe", kind: "character" as const }], sameEntity: [] },
+      { passageIndex: 1, mentions: [{ name: "Crokus", kind: "character" as const }], sameEntity: [] },
+    ],
+  };
+
+  it("matches by text hash, whatever the Chapter number", () => {
+    const hash = chapterTextHash(passages);
+    expect(cacheMatches({ ...legacy, textHash: hash }, passages, hash)).toBe(true);
+    expect(cacheMatches({ ...legacy, textHash: "other" }, passages, hash)).toBe(false);
+  });
+
+  it("accepts an old cache only when every cached name is in its Passage", () => {
+    const hash = chapterTextHash(passages);
+    expect(cacheMatches(legacy, passages, hash)).toBe(true);
+    expect(cacheMatches(legacy, ["Crokus ran.", "Kruppe waddled in."], hash)).toBe(false);
+    expect(cacheMatches(legacy, ["Kruppe waddled in."], hash)).toBe(false);
+  });
+});
