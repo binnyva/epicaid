@@ -151,12 +151,27 @@ export async function loadBook(
   });
 }
 
-export async function existingBookSummaries(db: NodeDb, bookId: string, model: string, promptVersion: string) {
+/**
+ * Subjects in this Book that already have a Book Summary for this prompt version, mapped to the model that
+ * wrote it. Pass a model to count only that model's summaries; leave it out to count any model's.
+ */
+export async function existingBookSummaries(
+  db: NodeDb,
+  bookId: string,
+  promptVersion: string,
+  model?: string,
+): Promise<Map<string, string>> {
   const rows = await db
-    .select({ subjectId: bookSummaries.subjectId })
+    .select({ subjectId: bookSummaries.subjectId, model: bookSummaries.model })
     .from(bookSummaries)
-    .where(and(eq(bookSummaries.bookId, bookId), eq(bookSummaries.model, model), eq(bookSummaries.promptVersion, promptVersion)));
-  return new Set(rows.map((r) => r.subjectId));
+    .where(
+      and(
+        eq(bookSummaries.bookId, bookId),
+        eq(bookSummaries.promptVersion, promptVersion),
+        model ? eq(bookSummaries.model, model) : undefined,
+      ),
+    );
+  return new Map(rows.map((r) => [r.subjectId, r.model]));
 }
 
 export async function majorSubjectIds(db: NodeDb, ids: string[]): Promise<Set<string>> {

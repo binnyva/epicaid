@@ -63,7 +63,7 @@ Re-ingesting a Book replaces its Chapters, which clears Reveal Chapters set in t
 3. Check `kind` in `book.json`: `front` and `back` matter (dramatis personae, glossaries) are skipped, and everything marked `chapter` becomes a Chapter. Fix any wrong guesses by hand.
 4. `pnpm cli ingest "<folder>" --series malazan --dry-run` shows the Chapter and Passage counts without spending anything.
 5. `pnpm cli ingest "<folder>" --series malazan --series-name "Malazan"` runs Ingestion:
-   - **Extraction**: one model call per Passage, cached in `extracted/extraction/`, so re-runs only pay for Chapters not yet done.
+   - **Extraction**: one model call per Passage, cached in `extracted/extraction/`, so re-runs only pay for Chapters not yet done. A Chapter another model already extracted is reused too, so switching to a cheaper model only pays for new Chapters (`--fresh` turns that off).
    - **Merge**: names become Subjects and Aliases. Likely secret identities get a Reveal Chapter (ADR 0005).
    - **Load**: writes the Book into Neon as a Draft. Re-running replaces that Book's Chapters and Passages.
    - **Book Summaries** for Major Subjects (25+ Passages by default). Existing ones are kept unless you pass `--resummarise`.

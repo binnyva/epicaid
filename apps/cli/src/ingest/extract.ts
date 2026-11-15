@@ -58,6 +58,23 @@ export function extractionCacheDir(bookFolder: string, model: string): string {
   return path.join(bookFolder, "extracted", "extraction", `${slugify(model)}-v${EXTRACTION_PROMPT_VERSION}`);
 }
 
+/** Cache folders other models wrote with the same prompt version, oldest name first for a stable order. */
+async function otherModelCacheDirs(bookFolder: string, ownDir: string): Promise<string[]> {
+  const root = path.join(bookFolder, "extracted", "extraction");
+  const suffix = `-v${EXTRACTION_PROMPT_VERSION}`;
+  let names: string[];
+  try {
+    names = (await readdir(root, { withFileTypes: true })).filter((d) => d.isDirectory()).map((d) => d.name);
+  } catch {
+    return [];
+  }
+  return names
+    .filter((n) => n.endsWith(suffix))
+    .sort()
+    .map((n) => path.join(root, n))
+    .filter((dir) => dir !== ownDir);
+}
+
 export const chapterTextHash = (passages: string[]) => createHash("sha256").update(passages.join("\n\n")).digest("hex");
 
 /**
@@ -99,6 +116,11 @@ export async function extractBook(options: {
   model: string;
   /** Not part of the cache key: cached Chapters are reused whatever effort wrote them. */
   reasoning: ReasoningEffort;
+  /**
+   * Only reuse this model's own cache. By default a Chapter another model already extracted (same prompt
+   * version, same text) is reused as it is, so switching to a cheaper model only pays for new Chapters.
+   */
+  fresh?: boolean;
   concurrency: number;
   onUsage: (usage: LlmUsage) => Promise<void> | void;
   log: (line: string) => void;
@@ -108,6 +130,13 @@ export async function extractBook(options: {
   const results: ChapterExtraction[] = [];
   // Read every cache file up front: rewriting one under its new index must not hide it from a later Chapter.
   const caches = await readAllCaches(dir);
+  const others: { model: string; caches: ChapterExtraction[] }[] = [];
+  if (!options.fresh) {
+    for (const otherDir of await otherModelCacheDirs(options.bookFolder, dir)) {
+      others.push({ model: path.basename(otherDir).replace(/-v[^-]+$/, ""), caches: await readAllCaches(otherDir) });
+    }
+  }
+  const reused = new Map<string, number>();
 
   for (const [chapterIndex, passages] of options.passagesByChapter.entries()) {
     const file = path.join(dir, `${String(chapterIndex).padStart(3, "0")}.json`);
@@ -118,6 +147,16 @@ export async function extractBook(options: {
       const chapter = { ...hit, chapterIndex, textHash };
       if (hit.chapterIndex !== chapterIndex || !hit.textHash) await writeFile(file, JSON.stringify(chapter, null, 1));
       results.push(chapter);
+      continue;
+    }
+    // Another model's extraction of the same text. Used as it is and left in that model's folder, so each
+    // folder only ever holds what its own model wrote.
+    const other = others
+      .map((o) => ({ model: o.model, hit: o.caches.find((c) => cacheMatches(c, passages, textHash)) }))
+      .find((o) => o.hit);
+    if (other?.hit) {
+      results.push({ ...other.hit, chapterIndex, textHash });
+      reused.set(other.model, (reused.get(other.model) ?? 0) + 1);
       continue;
     }
     const extracted = await mapPool(passages, options.concurrency, async (text, passageIndex) => {
@@ -136,6 +175,9 @@ export async function extractBook(options: {
     await writeFile(file, JSON.stringify(chapter, null, 1));
     options.log(`  extracted chapter ${chapterIndex} (${passages.length} passages)`);
     results.push(chapter);
+  }
+  for (const [model, count] of reused) {
+    options.log(`  reused ${count} Chapter${count === 1 ? "" : "s"} extracted by ${model} (pass --fresh to redo them)`);
   }
   return results;
 }

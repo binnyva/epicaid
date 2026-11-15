@@ -74,6 +74,40 @@ describe("extractBook", () => {
     expect(calls).toBe(3);
     expect(second).toEqual(first);
   });
+
+  it("reuses another model's Chapters unless fresh, and leaves that model's folder alone", async () => {
+    let calls = 0;
+    const chatJson = (async () => {
+      calls++;
+      return {
+        data: { mentions: [{ name: "Kruppe", kind: "character" }], sameEntity: [] },
+        usage: { model: "fake", promptTokens: 10, completionTokens: 5, reasoningTokens: 0, costUsd: 0.001 },
+      };
+    }) as unknown as ChatJson;
+    const bookFolder = await mkdtemp(path.join(tmpdir(), "epicaid-"));
+    const lines: string[] = [];
+    const base = {
+      bookFolder,
+      passagesByChapter: [["Kruppe smiled."]],
+      chatJson,
+      reasoning: "none" as const,
+      concurrency: 1,
+      onUsage: () => {},
+      log: (line: string) => lines.push(line),
+    };
+
+    const first = await extractBook({ ...base, model: "pricey/model" });
+    await extractBook({ ...base, passagesByChapter: [["Kruppe smiled."], ["Kruppe slept."]], model: "cheap/model" });
+    expect(calls).toBe(2); // only the new Chapter
+    expect(lines.some((l) => l.includes("reused 1 Chapter extracted by pricey-model"))).toBe(true);
+    const { readdir } = await import("node:fs/promises");
+    const { extractionCacheDir } = await import("./extract");
+    expect(await readdir(extractionCacheDir(bookFolder, "cheap/model"))).toEqual(["001.json"]);
+    expect(first).toHaveLength(1);
+
+    await extractBook({ ...base, model: "cheap/model", fresh: true });
+    expect(calls).toBe(3);
+  });
 });
 
 describe("cacheMatches", async () => {

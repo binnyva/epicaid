@@ -31,6 +31,11 @@ export interface IngestOptions {
   skipSummaries: boolean;
   /** Rewrite Book Summaries that already exist for this model and prompt version. */
   resummarise?: boolean;
+  /**
+   * Ignore work other models did: extraction caches in other models' folders and other models' Book Summaries.
+   * Off by default, so switching models only pays for what no model has done yet.
+   */
+  fresh?: boolean;
   /** Injected in tests; otherwise an OpenRouter client is created from OPENROUTER_API_KEY. */
   chatJson?: ChatJson;
 }
@@ -74,6 +79,7 @@ export async function ingest(options: IngestOptions) {
       chatJson,
       model: options.model,
       reasoning: options.reasoning,
+      fresh: options.fresh,
       concurrency: options.concurrency,
       onUsage: usageLogger("extraction"),
       log,
@@ -96,13 +102,19 @@ export async function ingest(options: IngestOptions) {
 
     if (!options.skipSummaries) {
       const done = options.resummarise
-        ? new Set<string>()
-        : await existingBookSummaries(db, loaded.bookId, options.summaryModel, BOOK_SUMMARY_PROMPT_VERSION);
+        ? new Map<string, string>()
+        : await existingBookSummaries(
+            db,
+            loaded.bookId,
+            BOOK_SUMMARY_PROMPT_VERSION,
+            options.fresh ? options.summaryModel : undefined,
+          );
+      const byOthers = [...done.values()].filter((m) => m !== options.summaryModel).length;
       const majors = subjects
         .filter((s) => passageCount(s) >= options.majorThreshold)
         .map((merged) => ({ merged, subjectId: loaded.subjectIds.get(merged) as string }))
         .filter(({ subjectId }) => !done.has(subjectId));
-      log(`Writing Book Summaries for ${majors.length} Major Subjects with ${options.summaryModel}, reasoning ${options.summaryReasoning} (${done.size} already written)…`);
+      log(`Writing Book Summaries for ${majors.length} Major Subjects with ${options.summaryModel}, reasoning ${options.summaryReasoning} (${done.size} already written${byOthers ? `, ${byOthers} of them by other models` : ""})…`);
       await summariseSubjects({
         db,
         chatJson,

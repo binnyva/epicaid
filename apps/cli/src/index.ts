@@ -30,6 +30,8 @@ Options for ingest:
   --passage-words <n>        Target Passage size in words (default: 350)
   --skip-summaries           Load the catalogue without writing Book Summaries
   --resummarise              Rewrite Book Summaries that already exist
+  --fresh                    Ignore work other models did. By default a Chapter or Book Summary that
+                             any model already produced is reused, so a model switch only pays for new work
   --dry-run                  Split into Passages and report sizes; no model calls or writes
 `;
 
@@ -78,6 +80,7 @@ const { positionals, values } = parseArgs({
     "passage-words": { type: "string", default: "350" },
     "skip-summaries": { type: "boolean", default: false },
     resummarise: { type: "boolean", default: false },
+    fresh: { type: "boolean", default: false },
     "dry-run": { type: "boolean", default: false },
     yes: { type: "boolean", default: false },
   },
@@ -124,6 +127,7 @@ switch (command) {
       dryRun: values["dry-run"],
       skipSummaries: values["skip-summaries"],
       resummarise: values.resummarise,
+      fresh: values.fresh,
     });
     break;
   }
