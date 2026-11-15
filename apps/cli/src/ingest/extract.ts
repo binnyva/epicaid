@@ -13,6 +13,7 @@ import {
   type ChatJson,
   type Extraction,
   type LlmUsage,
+  type ReasoningEffort,
 } from "@epicaid/core";
 import { slugify } from "./book";
 import { mapPool } from "./pool";
@@ -96,6 +97,8 @@ export async function extractBook(options: {
   passagesByChapter: string[][];
   chatJson: ChatJson;
   model: string;
+  /** Not part of the cache key: cached Chapters are reused whatever effort wrote them. */
+  reasoning: ReasoningEffort;
   concurrency: number;
   onUsage: (usage: LlmUsage) => Promise<void> | void;
   log: (line: string) => void;
@@ -124,6 +127,7 @@ export async function extractBook(options: {
         user: extractionUserPrompt(text),
         schema: extractionSchema,
         schemaName: "passage_index",
+        reasoning: options.reasoning,
       });
       await options.onUsage(usage);
       return cleanExtraction(text, data, passageIndex);

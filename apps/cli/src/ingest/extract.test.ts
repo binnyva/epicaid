@@ -51,7 +51,7 @@ describe("extractBook", () => {
       calls++;
       return {
         data: { mentions: [{ name: "Kruppe", kind: "character" }], sameEntity: [] },
-        usage: { model: "fake", promptTokens: 10, completionTokens: 5, costUsd: 0.001 },
+        usage: { model: "fake", promptTokens: 10, completionTokens: 5, reasoningTokens: 0, costUsd: 0.001 },
       };
     }) as unknown as ChatJson;
     const bookFolder = await mkdtemp(path.join(tmpdir(), "epicaid-"));
@@ -60,6 +60,7 @@ describe("extractBook", () => {
       passagesByChapter: [["Kruppe smiled.", "Kruppe ate."], ["Kruppe slept."]],
       chatJson,
       model: "fake/model",
+      reasoning: "none" as const,
       concurrency: 2,
       onUsage: () => {},
       log: () => {},

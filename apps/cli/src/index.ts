@@ -5,7 +5,8 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { createDb, eq, schema, sql } from "@epicaid/db";
 import { createNodeDb } from "@epicaid/db/node";
-import { DEFAULT_MODEL, ingest } from "./ingest";
+import { parseReasoningEffort } from "@epicaid/core";
+import { DEFAULT_EXTRACTION_REASONING, DEFAULT_MODEL, DEFAULT_SUMMARY_REASONING, ingest } from "./ingest";
 
 const usage = `Usage: pnpm cli <command>
 
@@ -20,6 +21,10 @@ Options for ingest:
   --series-name <name>       Display name when the Series is new (default: from book.json)
   --model <id>               OpenRouter model for extraction (default: $EXTRACTION_MODEL or ${DEFAULT_MODEL})
   --summary-model <id>       Model for Book Summaries (default: $SUMMARY_MODEL or the extraction model)
+  --reasoning <effort>       Reasoning effort for extraction: none, low, medium, high, max
+                             (default: $EXTRACTION_REASONING or ${DEFAULT_EXTRACTION_REASONING}). Cached Chapters are reused
+                             whatever effort wrote them.
+  --summary-reasoning <e>    Reasoning effort for Book Summaries (default: $SUMMARY_REASONING or ${DEFAULT_SUMMARY_REASONING})
   --concurrency <n>          Parallel model calls (default: 8)
   --major <n>                Passages needed to count as a Major Subject (default: 25)
   --passage-words <n>        Target Passage size in words (default: 350)
@@ -66,6 +71,8 @@ const { positionals, values } = parseArgs({
     "series-name": { type: "string" },
     model: { type: "string" },
     "summary-model": { type: "string" },
+    reasoning: { type: "string" },
+    "summary-reasoning": { type: "string" },
     concurrency: { type: "string", default: "8" },
     major: { type: "string", default: "25" },
     "passage-words": { type: "string", default: "350" },
@@ -103,6 +110,14 @@ switch (command) {
       seriesName: values["series-name"],
       model,
       summaryModel: values["summary-model"] ?? process.env.SUMMARY_MODEL ?? model,
+      reasoning: parseReasoningEffort(
+        values.reasoning ?? process.env.EXTRACTION_REASONING ?? DEFAULT_EXTRACTION_REASONING,
+        "--reasoning",
+      ),
+      summaryReasoning: parseReasoningEffort(
+        values["summary-reasoning"] ?? process.env.SUMMARY_REASONING ?? DEFAULT_SUMMARY_REASONING,
+        "--summary-reasoning",
+      ),
       concurrency: Number(values.concurrency),
       majorThreshold: Number(values.major),
       passageWords: Number(values["passage-words"]),

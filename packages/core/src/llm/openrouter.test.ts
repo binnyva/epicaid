@@ -33,8 +33,23 @@ describe("createOpenRouterClient", () => {
     const chat = createOpenRouterClient({ apiKey: "k", fetch: fn, retries: 0 });
     const result = await chat(request);
     expect(result.data).toEqual({ answer: "yes" });
-    expect(result.usage).toEqual({ model: "m", promptTokens: 3, completionTokens: 2, costUsd: 0.0004 });
+    expect(result.usage).toEqual({ model: "m", promptTokens: 3, completionTokens: 2, reasoningTokens: 0, costUsd: 0.0004 });
     expect((sent[0] as { response_format: { type: string } }).response_format.type).toBe("json_schema");
+  });
+
+  it("sends a reasoning effort only when one is asked for, and reports reasoning tokens", async () => {
+    const thinking = reply(200, {
+      model: "m",
+      choices: [{ message: { content: '{"answer":"yes"}' } }],
+      usage: { prompt_tokens: 3, completion_tokens: 40, completion_tokens_details: { reasoning_tokens: 38 }, cost: 0.001 },
+    });
+    const { fn, sent } = fakeFetch(ok('{"answer":"yes"}'), thinking);
+    const chat = createOpenRouterClient({ apiKey: "k", fetch: fn, retries: 0 });
+    await chat({ ...request, reasoning: "none" });
+    const result = await chat(request);
+    expect((sent[0] as { reasoning?: unknown }).reasoning).toEqual({ effort: "none", exclude: true });
+    expect(sent[1]).not.toHaveProperty("reasoning");
+    expect(result.usage.reasoningTokens).toBe(38);
   });
 
   it("retries server errors and replies that do not match the schema", async () => {

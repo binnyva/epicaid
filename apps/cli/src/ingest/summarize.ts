@@ -6,6 +6,7 @@ import {
   bookSummaryUserPrompt,
   type ChatJson,
   type LlmUsage,
+  type ReasoningEffort,
 } from "@epicaid/core";
 import type { NodeDb } from "@epicaid/db/node";
 import { schema } from "@epicaid/db";
@@ -16,12 +17,23 @@ import { mapPool } from "./pool";
 /** Above this many words of Passages, summarise in parts and then summarise the parts. */
 const MAX_WORDS_PER_CALL = 30_000;
 
+/**
+ * A summary is at most ~400 words (~600 tokens of JSON). max_tokens covers reasoning too, so leave room for
+ * the thinking each effort level does, and enough at high levels that the model is not cut off mid-thought.
+ */
+export function summaryMaxTokens(reasoning: ReasoningEffort): number {
+  if (reasoning === "none") return 1500;
+  if (reasoning === "minimal" || reasoning === "low") return 3000;
+  return 8000;
+}
+
 const wordCount = (s: string) => s.split(/\s+/).filter(Boolean).length;
 
 export async function summariseSubjects(options: {
   db: NodeDb;
   chatJson: ChatJson;
   model: string;
+  reasoning: ReasoningEffort;
   concurrency: number;
   book: ExtractedBook;
   bookId: string;
@@ -42,8 +54,8 @@ export async function summariseSubjects(options: {
       }),
       schema: bookSummarySchema,
       schemaName: "book_summary",
-      // Generous, because reasoning models spend tokens before writing the summary.
-      maxTokens: 8000,
+      reasoning: options.reasoning,
+      maxTokens: summaryMaxTokens(options.reasoning),
     });
     await options.onUsage(usage);
     return data.summary.trim();

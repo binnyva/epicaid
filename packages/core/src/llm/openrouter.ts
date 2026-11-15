@@ -7,8 +7,24 @@ import { z } from "zod";
 export interface LlmUsage {
   model: string;
   promptTokens: number;
+  /** Includes reasoning tokens: they are billed as output. */
   completionTokens: number;
+  /** The part of completionTokens the model spent thinking before it answered. */
+  reasoningTokens: number;
   costUsd: number;
+}
+
+/**
+ * OpenRouter's reasoning effort levels. "none" turns reasoning off. Each model accepts only some of these
+ * (DeepSeek V4: none, low, high, max) and OpenRouter maps or rejects the rest; a model whose reasoning is
+ * mandatory rejects "none".
+ */
+export const REASONING_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
+export function parseReasoningEffort(value: string, flag: string): ReasoningEffort {
+  if ((REASONING_EFFORTS as readonly string[]).includes(value)) return value as ReasoningEffort;
+  throw new Error(`${flag} must be one of ${REASONING_EFFORTS.join(", ")} (got "${value}")`);
 }
 
 export interface ChatJsonRequest<T extends z.ZodType> {
@@ -19,7 +35,10 @@ export interface ChatJsonRequest<T extends z.ZodType> {
   /** Name for the JSON schema sent to the provider. */
   schemaName: string;
   temperature?: number;
+  /** Covers reasoning tokens and the reply together. */
   maxTokens?: number;
+  /** Reasoning effort. Unset leaves the model's default, which for many models is reasoning on. */
+  reasoning?: ReasoningEffort;
 }
 
 export interface ChatJsonResult<T> {
@@ -36,7 +55,12 @@ export class LlmFatalError extends LlmError {}
 interface OpenRouterResponse {
   model?: string;
   choices?: { finish_reason?: string | null; message?: { content?: string | null } }[];
-  usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    completion_tokens_details?: { reasoning_tokens?: number };
+    cost?: number;
+  };
   error?: { message?: string };
 }
 
@@ -74,6 +98,8 @@ export function createOpenRouterClient(options: {
         json_schema: { name: req.schemaName, strict: true, schema: z.toJSONSchema(req.schema) },
       },
       usage: { include: true },
+      // exclude: we never read the reasoning text, so don't send it back.
+      ...(req.reasoning ? { reasoning: { effort: req.reasoning, exclude: true } } : {}),
     };
 
     let lastError: unknown;
@@ -114,6 +140,7 @@ export function createOpenRouterClient(options: {
             model: json.model ?? req.model,
             promptTokens: json.usage?.prompt_tokens ?? 0,
             completionTokens: json.usage?.completion_tokens ?? 0,
+            reasoningTokens: json.usage?.completion_tokens_details?.reasoning_tokens ?? 0,
             costUsd: json.usage?.cost ?? 0,
           },
         };

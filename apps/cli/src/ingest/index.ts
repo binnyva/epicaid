@@ -1,4 +1,4 @@
-import { createOpenRouterClient, type ChatJson, type LlmUsage } from "@epicaid/core";
+import { createOpenRouterClient, type ChatJson, type LlmUsage, type ReasoningEffort } from "@epicaid/core";
 import { schema } from "@epicaid/db";
 import { createNodeDb } from "@epicaid/db/node";
 import { readExtractedBook } from "./book";
@@ -11,6 +11,10 @@ import { writeReport } from "./report";
 import { summariseSubjects } from "./summarize";
 
 export const DEFAULT_MODEL = "deepseek/deepseek-v4-flash-0731";
+/** Extraction is listing names in a short Passage: thinking first mostly burns output tokens. */
+export const DEFAULT_EXTRACTION_REASONING: ReasoningEffort = "none";
+/** A little thinking helps a summary stay in story order and cite the right Chapters. */
+export const DEFAULT_SUMMARY_REASONING: ReasoningEffort = "low";
 
 export interface IngestOptions {
   bookFolder: string;
@@ -18,6 +22,8 @@ export interface IngestOptions {
   seriesName?: string;
   model: string;
   summaryModel: string;
+  reasoning: ReasoningEffort;
+  summaryReasoning: ReasoningEffort;
   concurrency: number;
   majorThreshold: number;
   passageWords: number;
@@ -46,8 +52,11 @@ export async function ingest(options: IngestOptions) {
   const chatJson = options.chatJson ?? createOpenRouterClient({ apiKey: apiKey as string });
   const { db, close } = createNodeDb();
   let spend = 0;
+  const tokens = { completion: 0, reasoning: 0 };
   const usageLogger = (purpose: "extraction" | "book_summary") => async (usage: LlmUsage) => {
     spend += usage.costUsd;
+    tokens.completion += usage.completionTokens;
+    tokens.reasoning += usage.reasoningTokens;
     await db.insert(schema.spendLog).values({
       purpose,
       model: usage.model,
@@ -58,12 +67,13 @@ export async function ingest(options: IngestOptions) {
   };
 
   try {
-    log(`Extracting with ${options.model} (cached per Chapter, safe to re-run)…`);
+    log(`Extracting with ${options.model}, reasoning ${options.reasoning} (cached per Chapter, safe to re-run)…`);
     const extraction = await extractBook({
       bookFolder: book.folder,
       passagesByChapter,
       chatJson,
       model: options.model,
+      reasoning: options.reasoning,
       concurrency: options.concurrency,
       onUsage: usageLogger("extraction"),
       log,
@@ -92,11 +102,12 @@ export async function ingest(options: IngestOptions) {
         .filter((s) => passageCount(s) >= options.majorThreshold)
         .map((merged) => ({ merged, subjectId: loaded.subjectIds.get(merged) as string }))
         .filter(({ subjectId }) => !done.has(subjectId));
-      log(`Writing Book Summaries for ${majors.length} Major Subjects with ${options.summaryModel} (${done.size} already written)…`);
+      log(`Writing Book Summaries for ${majors.length} Major Subjects with ${options.summaryModel}, reasoning ${options.summaryReasoning} (${done.size} already written)…`);
       await summariseSubjects({
         db,
         chatJson,
         model: options.summaryModel,
+        reasoning: options.summaryReasoning,
         concurrency: options.concurrency,
         book,
         bookId: loaded.bookId,
@@ -106,7 +117,10 @@ export async function ingest(options: IngestOptions) {
         log,
       });
     }
-    log(`Done. Spent $${spend.toFixed(4)} on this run (cached Chapters cost nothing).`);
+    log(
+      `Done. Spent $${spend.toFixed(4)} on this run (cached Chapters cost nothing). ` +
+        `Output tokens: ${tokens.completion.toLocaleString()}, of which reasoning: ${tokens.reasoning.toLocaleString()}.`,
+    );
   } finally {
     await close();
   }
