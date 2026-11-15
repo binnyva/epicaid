@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema.ts",
-    "./node": "./src/node.ts"
+    "./node": "./src/node.ts",
+    "./reader": "./src/reader.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
@@ -15,13 +16,15 @@
     "studio": "drizzle-kit studio"
   },
   "dependencies": {
+    "@epicaid/core": "workspace:*",
     "@neondatabase/serverless": "^1.2.0",
     "drizzle-orm": "^0.45.4",
     "pg": "^8.23.1"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16",
+    "@types/pg": "^8.15.0",
     "drizzle-kit": "^0.31.11",
-    "tsx": "^4.23.15",
-    "@types/pg": "^8.15.0"
+    "tsx": "^4.23.15"
   }
 }

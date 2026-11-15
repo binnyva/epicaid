@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { getReader } from "@/lib/auth";
+import { figtree } from "../_pocket/font";
+import "../_pocket/pocket.css";
 
 const errors: Record<string, string> = {
   "not-invited": "That Google account isn't on the invite list yet. Ask the admin to add it.",
@@ -13,16 +15,25 @@ export default async function SignIn({ searchParams }: { searchParams: Promise<{
   if (await getReader()) redirect("/");
   const { error } = await searchParams;
   return (
-    <main>
-      <h1>Epic Aid</h1>
-      <p>Remember who&apos;s who in long book series, without spoilers.</p>
-      {error && <p className="error">{errors[error] ?? "Sign-in failed."}</p>}
-      <p>
-        <a className="button" href="/api/auth/google">
-          Sign in with Google
-        </a>
-      </p>
-      <p className="muted">Epic Aid is invite-only for now.</p>
-    </main>
+    <div className={`pocket ${figtree.variable}`}>
+      <main className="signed-out">
+        <div className="signed-out-inner">
+          <span className="wordmark">Epic Aid</span>
+          <h1 className="screen-title">Remember who&apos;s who, without spoilers.</h1>
+          <p className="body-text muted-text">
+            Look up anyone or anything from a long book series and see only what the Chapters you have read reveal.
+          </p>
+          {error && (
+            <p className="notice notice-error" role="alert">
+              {errors[error] ?? "Sign-in failed."}
+            </p>
+          )}
+          <a className="button button-primary button-block" href="/api/auth/google">
+            Sign in with Google
+          </a>
+          <p className="secondary">Epic Aid is invite-only for now.</p>
+        </div>
+      </main>
+    </div>
   );
 }

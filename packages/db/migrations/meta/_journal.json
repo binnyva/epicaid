@@ -29,6 +29,13 @@
       "when": 1794699316664,
       "tag": "0003_chapter_part",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794782944044,
+      "tag": "0004_reader_position",
+      "breakpoints": true
     }
   ]
 }

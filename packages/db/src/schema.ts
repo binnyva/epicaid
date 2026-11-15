@@ -183,8 +183,14 @@ export const readings = pgTable(
     readerId: uuid("reader_id").notNull().references(() => readers.id, { onDelete: "cascade" }),
     seriesId: uuid("series_id").notNull().references(() => series.id, { onDelete: "cascade" }),
     readingOrderId: uuid("reading_order_id").references(() => readingOrders.id, { onDelete: "set null" }),
-    /** The Reading Position: last finished Chapter of the current Book. Null between Books. */
-    lastFinishedChapterId: uuid("last_finished_chapter_id").references(() => chapters.id, { onDelete: "set null" }),
+    /** The Book the Reader is in now. Null between Books. */
+    currentBookId: uuid("current_book_id").references(() => books.id, { onDelete: "set null" }),
+    /**
+     * The Reading Position: index of the last finished Chapter of the current Book, or null
+     * before the first one. Stored as an index, not a Chapter id, because re-ingesting a Book
+     * replaces its Chapter rows but keeps their order.
+     */
+    lastFinishedChapterIndex: integer("last_finished_chapter_index"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("readings_reader_series").on(t.readerId, t.seriesId)],
@@ -205,6 +211,8 @@ export const lookupHistory = pgTable(
     id: id(),
     readingId: uuid("reading_id").notNull().references(() => readings.id, { onDelete: "cascade" }),
     subjectId: uuid("subject_id").notNull().references(() => subjects.id, { onDelete: "cascade" }),
+    /** Set when the lookup was of an Alias whose Reveal was outside the boundary, so it stood as its own Subject (ADR 0005). */
+    aliasId: uuid("alias_id").references(() => aliases.id, { onDelete: "cascade" }),
     lookedUpAt: timestamp("looked_up_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("lookup_history_reading").on(t.readingId, t.lookedUpAt)],

@@ -46,6 +46,17 @@ Google only, invite-only. In Google Cloud, create an OAuth client of type *Web a
 
 Re-ingesting a Book replaces its Chapters, which clears Reveal Chapters set in that Book. Do catalogue fixes once a Book's Ingestion is final. After merging Subjects, refresh their Book Summaries with `pnpm cli ingest … --resummarise`.
 
+## Reader app
+
+Signed-in Readers land on the reader side, built to `docs/design/reader-pocket.md` (Pocket):
+
+- **Series picker** on first sign-in, and from Reading → Series to switch. Each Series keeps its own Reading.
+- **Reading**: choose a Reading Order and tick Finished Books.
+- **Position**: pick the current Book (Change Book) and the last finished Chapter, from the Chapter list or by Quote Search (four or more words, current Book only, returns Chapters, never text).
+- **Look up**: fuzzy and sound-alike search over Aliases mentioned inside the Spoiler Boundary, with kind filters and Lookup History (the last 20 per Reading). A Subject page shows the name, kind and other visible names; Summaries arrive in Phase 4.
+
+Every reader query filters on the Spoiler Boundary in SQL (`packages/db/src/reader.ts`), and Draft Books never count. `packages/db/src/reader.test.ts` checks this against a made-up Series in an in-process Postgres (PGlite), so `pnpm test` needs no database.
+
 ## Everyday commands
 
 | Command | Does |
