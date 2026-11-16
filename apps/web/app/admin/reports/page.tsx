@@ -1,5 +1,6 @@
 import { desc, eq, schema, type SummaryEntry } from "@epicaid/db";
 import { getDb } from "@/lib/db";
+import { citationChips } from "@/lib/summary-text";
 import { resolveSpoilerReport } from "../actions";
 import { Flash } from "../flash";
 
@@ -50,7 +51,7 @@ export default async function ReportsAdmin({ searchParams }: { searchParams: Pro
                 <summary>The Summary they saw</summary>
                 {entry.paragraphs.map((p, i) => (
                   <p key={i}>
-                    {p.map((s) => `${s.text} [${s.sources.map((n) => entry.sources.find((x) => x.n === n)?.chip ?? n).join(", ")}]`).join(" ")}
+                    {p.map((s) => `${s.text} [${citationChips(s.sources, entry.sources).map((c) => c.label).join(", ")}]`).join(" ")}
                   </p>
                 ))}
               </details>

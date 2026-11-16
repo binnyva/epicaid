@@ -7,7 +7,7 @@
 import type { SummaryEntry } from "@epicaid/db";
 import { useActionState, useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { reportSpoiler, type ReportState } from "../actions";
-import { basisSentence, ERROR_TEXT, type SummaryErrorCode, type SummaryStreamLine } from "@/lib/summary-text";
+import { basisSentence, citationChips, ERROR_TEXT, type SummaryErrorCode, type SummaryStreamLine } from "@/lib/summary-text";
 
 type State =
   | { status: "ready"; entry: SummaryEntry }
@@ -141,47 +141,39 @@ function SummaryProblem({ code, onRetry }: { code: SummaryErrorCode; onRetry: ()
   );
 }
 
-function openSource(n: number) {
-  const el = document.getElementById(`source-${n}`);
-  if (el instanceof HTMLDetailsElement) el.open = true;
-  el?.scrollIntoView({ behavior: "smooth", block: "center" });
+/** Opens every source behind a chip and scrolls to the first. */
+function openSources(ns: readonly number[]) {
+  ns.forEach((n, i) => {
+    const el = document.getElementById(`source-${n}`);
+    if (el instanceof HTMLDetailsElement) el.open = true;
+    if (i === 0) el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
 }
 
 function SummaryBody({ entry }: { entry: SummaryEntry }) {
-  const chipFor = new Map(entry.sources.map((s) => [s.n, s]));
   return (
     <div className="summary-text">
       {entry.paragraphs.map((paragraph, i) => (
         <p key={i}>
-          {paragraph.map((sentence, j) => {
-            // One chip per distinct label: "Ch 1 Ch 1" reads badly.
-            const seen = new Set<string>();
-            const chips = sentence.sources.flatMap((n) => {
-              const source = chipFor.get(n);
-              if (!source || seen.has(source.chip)) return [];
-              seen.add(source.chip);
-              return [source];
-            });
-            return (
-              <span key={j}>
-                {sentence.text}{" "}
-                {chips.map((s) => (
-                  <a
-                    key={s.n}
-                    href={`#source-${s.n}`}
-                    className="cite"
-                    title={s.heading}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      openSource(s.n);
-                    }}
-                  >
-                    {s.chip}
-                  </a>
-                ))}{" "}
-              </span>
-            );
-          })}
+          {paragraph.map((sentence, j) => (
+            <span key={j}>
+              {sentence.text}{" "}
+              {citationChips(sentence.sources, entry.sources).map((chip) => (
+                <a
+                  key={chip.label}
+                  href={`#source-${chip.sources[0]}`}
+                  className="cite"
+                  title={chip.title}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    openSources(chip.sources);
+                  }}
+                >
+                  {chip.label}
+                </a>
+              ))}{" "}
+            </span>
+          ))}
         </p>
       ))}
     </div>

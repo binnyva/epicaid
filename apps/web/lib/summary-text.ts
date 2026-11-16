@@ -57,3 +57,24 @@ export const ERROR_TEXT: Record<SummaryErrorCode, { title: string; body: string;
   llm: { title: "The Summary didn't come through", body: "Something went wrong while writing it. Nothing was saved.", retry: true },
   "not-visible": { title: "No match", body: "This isn't something you can look up from where you are in the books.", retry: false },
 };
+
+export interface CitationChip {
+  label: string;
+  /** Every source the sentence cites under this label: two Passages of one Chapter share one chip. */
+  sources: number[];
+  title: string;
+}
+
+/** One chip per distinct label, in citation order: "Ch 5" once, not "Ch 5, Ch 5". */
+export function citationChips(cited: readonly number[], sources: SummaryEntry["sources"]): CitationChip[] {
+  const byN = new Map(sources.map((s) => [s.n, s]));
+  const chips: CitationChip[] = [];
+  for (const n of cited) {
+    const source = byN.get(n);
+    if (!source) continue;
+    const chip = chips.find((c) => c.label === source.chip);
+    if (chip) chip.sources.push(n);
+    else chips.push({ label: source.chip, sources: [n], title: source.heading });
+  }
+  return chips;
+}
