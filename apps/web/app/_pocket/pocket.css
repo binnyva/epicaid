@@ -374,8 +374,11 @@ body:has(.pocket) {
   background: var(--accent);
   color: var(--accent-fg);
 }
+/* Opaque on purpose: a see-through button lets content scroll through it
+   (the pinned Save button on the Position screen). */
 .pocket .button-primary:disabled {
-  opacity: 0.45;
+  background: var(--accent-soft);
+  color: var(--muted);
   cursor: default;
 }
 .pocket .button-quiet {
@@ -759,7 +762,7 @@ body:has(.pocket) {
   display: block;
 }
 .pocket .sticky-save .button {
-  box-shadow: 0 8px 24px -8px rgb(0 0 0 / 0.35);
+  box-shadow: 0 8px 24px -8px rgb(0 0 0 / 0.35), 0 0 0 1px var(--rule);
 }
 .pocket .field {
   height: 50px;

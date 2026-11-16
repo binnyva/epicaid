@@ -41,8 +41,9 @@ export function PositionScreen({ bookTitle, bookFinished, chapters, saved, side 
     setMode("chapters");
   };
 
-  const label = selectedChapter ? `Save · finished ${selectedChapter.label}` : "Save · no Chapter finished yet";
   const unchanged = selected === saved;
+  const verb = unchanged ? "Saved" : "Save";
+  const label = selectedChapter ? `${verb} · finished ${selectedChapter.label}` : `${verb} · no Chapter finished yet`;
 
   return (
     <form action={savePosition} className="screen position">
