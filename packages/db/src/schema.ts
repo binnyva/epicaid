@@ -152,12 +152,19 @@ export const bookSummaries = pgTable(
     id: id(),
     subjectId: uuid("subject_id").notNull().references(() => subjects.id, { onDelete: "cascade" }),
     bookId: uuid("book_id").notNull().references(() => books.id, { onDelete: "cascade" }),
+    /**
+     * Which Aliases it was written from. "" (Ingestion's default) = every Alias of the Subject mentioned in the
+     * Book. Otherwise the sorted, comma-joined ids of the Aliases used: the reader app writes these narrower
+     * ones when some of the Subject's Aliases in the Book are not yet joined for a Reader (ADR 0005), so the
+     * Book Summary cannot give the secret identity away.
+     */
+    scope: text("scope").notNull().default(""),
     text: text("text").notNull(),
     model: text("model").notNull(),
     promptVersion: text("prompt_version").notNull(),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex("book_summaries_key").on(t.subjectId, t.bookId, t.model, t.promptVersion)],
+  (t) => [uniqueIndex("book_summaries_key").on(t.subjectId, t.bookId, t.scope, t.model, t.promptVersion)],
 );
 
 // ---------- Readers ----------
@@ -225,6 +232,10 @@ export const spoilerReports = pgTable("spoiler_reports", {
   readerId: uuid("reader_id").notNull().references(() => readers.id, { onDelete: "cascade" }),
   subjectId: uuid("subject_id").notNull().references(() => subjects.id, { onDelete: "cascade" }),
   cacheKey: text("cache_key").notNull(),
+  /** The lookup ref ("s-<id>" or "a-<id>") the Reader was looking at. */
+  targetRef: text("target_ref"),
+  /** A copy of the Summary as the Reader saw it, since the cached one may expire or be regenerated. */
+  summary: jsonb("summary"),
   note: text("note"),
   status: reportStatus("status").notNull().default("open"),
   createdAt: createdAt(),
@@ -243,7 +254,7 @@ export const spendLog = pgTable(
     completionTokens: integer("completion_tokens").notNull(),
     costUsd: numeric("cost_usd", { precision: 12, scale: 6 }).notNull(),
   },
-  (t) => [index("spend_log_occurred").on(t.occurredAt)],
+  (t) => [index("spend_log_occurred").on(t.occurredAt), index("spend_log_reader").on(t.readerId, t.occurredAt)],
 );
 
 /** Admin-editable settings: summary model, prompt version, daily caps. */

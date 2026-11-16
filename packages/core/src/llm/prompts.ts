@@ -69,3 +69,54 @@ export function bookSummaryUserPrompt(input: {
   const body = input.passages.map((p) => `[${p.chapterLabel}]\n${p.text}`).join("\n\n---\n\n");
   return `${header}\nPassages:\n\n${body}`;
 }
+
+// ---------- Summary (one per Subject per Spoiler Boundary, written in the reader app) ----------
+
+export const SUMMARY_PROMPT_VERSION = "1";
+
+export const summarySchema = z.strictObject({
+  paragraphs: z.array(
+    z.strictObject({
+      sentences: z.array(
+        z.strictObject({
+          text: z.string().describe("One sentence, without any citation markers"),
+          sources: z.array(z.number().int()).describe("The numbers of the sources this sentence comes from"),
+        }),
+      ),
+    }),
+  ),
+});
+
+export type SummaryReply = z.infer<typeof summarySchema>;
+
+export const SUMMARY_SYSTEM = `You write a short memory aid for someone partway through a long book series. They have forgotten who or what the subject is and want a reminder of what the books have told them so far.
+
+You will get numbered sources: summaries of whole books the reader has finished, and passages from the book they are reading now, in story order. They are everything the reader has read about the subject. They are not everything there is.
+
+Write 2 to 4 short paragraphs, 120-300 words in all: who or what the subject is, key relationships, what has happened to it so far in story order, and where things stand at the latest source.
+- Every sentence must list the number(s) of the source(s) it comes from in "sources". A sentence you cannot tie to a source must be left out.
+- Use only the sources. You may know these books; ignore everything you know about them. Never hint at what comes later, never guess at hidden identities, motives or fates, and never say that something "will" happen or "turns out" to be so.
+- Call the subject and everyone else only by names the sources use.
+- Plain, friendly prose. No headings, no lists, no quotations longer than a few words.`;
+
+export interface SummarySource {
+  /** 1-based number the model cites. */
+  n: number;
+  /** "Book Summary of Gardens of the Moon" or "Deadhouse Gates, Chapter Three". */
+  heading: string;
+  text: string;
+}
+
+export function summaryUserPrompt(input: {
+  subjectName: string;
+  otherNames: string[];
+  finishedBooks: string[];
+  current: { bookTitle: string; through: string } | null;
+  sources: SummarySource[];
+}): string {
+  const lines = [`Subject: ${input.subjectName}${input.otherNames.length ? ` (also called: ${input.otherNames.join(", ")})` : ""}`];
+  if (input.finishedBooks.length) lines.push(`Books the reader has finished: ${input.finishedBooks.join("; ")}`);
+  if (input.current) lines.push(`Reading now: ${input.current.bookTitle}, finished up to ${input.current.through}`);
+  const body = input.sources.map((s) => `[${s.n}] ${s.heading}\n${s.text}`).join("\n\n---\n\n");
+  return `${lines.join("\n")}\n\nSources:\n\n${body}`;
+}

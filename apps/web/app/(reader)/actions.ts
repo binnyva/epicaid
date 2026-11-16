@@ -3,12 +3,13 @@
  * Reader server actions. Each one loads the Reader's own Reading and checks that any Book,
  * Chapter or Reading Order it is given belongs to that Reading's published Series.
  */
-import { and, desc, eq, schema, sql } from "@epicaid/db";
+import { and, cachedSummaryFor, desc, eq, getSummarySettings, parseRef, resolveTargets, schema, sql } from "@epicaid/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireReader } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { getReadingContext } from "@/lib/reading";
+import { getSummaryCache } from "@/lib/summary-cache";
 
 const { readings, finishedBooks, readingOrders, series } = schema;
 const str = (form: FormData, key: string) => String(form.get(key) ?? "").trim();
@@ -107,4 +108,39 @@ export async function savePosition(form: FormData) {
     .where(eq(readings.id, ctx.reading.id));
   refresh();
   redirect("/");
+}
+
+// ---------- Spoiler Reports ----------
+
+export interface ReportState {
+  status: "idle" | "sent" | "error";
+}
+
+/**
+ * Files a Spoiler Report on the Summary the Reader is looking at. The Summary is found again from the Reader's
+ * own boundary, not from anything the browser sends, and a copy goes with the report for the admin queue.
+ */
+export async function reportSpoiler(_prev: ReportState, form: FormData): Promise<ReportState> {
+  const ctx = await reading();
+  const db = getDb();
+  const ref = parseRef(str(form, "ref"));
+  const [target] = ref ? await resolveTargets(db, ctx.series.id, ctx.boundary, [ref]) : [];
+  if (!target) return { status: "error" };
+  const settings = await getSummarySettings(db);
+  const { key, entry } = await cachedSummaryFor(db, getSummaryCache(), ctx.boundary, target, settings);
+  if (!key) return { status: "error" };
+  const subjectId = target.ref.startsWith("s-")
+    ? target.ref.slice(2)
+    : (await db.select({ id: schema.aliases.subjectId }).from(schema.aliases).where(eq(schema.aliases.id, target.ref.slice(2))))[0]?.id;
+  if (!subjectId) return { status: "error" };
+  await db.insert(schema.spoilerReports).values({
+    readerId: ctx.reader.id,
+    subjectId,
+    cacheKey: key,
+    targetRef: target.ref,
+    summary: entry,
+    note: str(form, "note").slice(0, 2000) || null,
+  });
+  revalidatePath("/admin", "layout");
+  return { status: "sent" };
 }

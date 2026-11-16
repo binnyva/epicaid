@@ -3,15 +3,16 @@
  * Admin server actions. Every action checks the admin flag itself; the layout check alone
  * does not protect a server action, which can be called directly.
  */
-import { and, eq, inArray, schema, sql } from "@epicaid/db";
+import { and, eq, getSummarySettings, inArray, parseSummarySettings, saveSummarySettings, schema, sql } from "@epicaid/db";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { normaliseEmail } from "@/lib/access";
 import { requireAdmin } from "@/lib/auth";
 import { getDb } from "@/lib/db";
 import { parseOrderPositions } from "@/lib/reading-order";
+import { getSummaryCache } from "@/lib/summary-cache";
 
-const { series, books, readingOrders, readingOrderBooks, subjects, aliases, mentions, allowedEmails, readers } = schema;
+const { series, books, readingOrders, readingOrderBooks, subjects, aliases, mentions, allowedEmails, readers, spoilerReports } = schema;
 const KINDS = ["character", "place", "artefact", "faction", "other"] as const;
 type Kind = (typeof KINDS)[number];
 
@@ -260,4 +261,43 @@ export async function setReaderAdmin(form: FormData) {
   if (id === me.id) return done("/admin/readers", "You can't change your own admin flag.");
   await getDb().update(readers).set({ isAdmin: str(form, "admin") === "1" }).where(eq(readers.id, id));
   done("/admin/readers", "Saved.");
+}
+
+// ---------- Summaries ----------
+
+export async function saveSummarySettingsAction(form: FormData) {
+  await requireAdmin();
+  const db = getDb();
+  const current = await getSummarySettings(db);
+  const settings = parseSummarySettings({
+    model: str(form, "model") || current.model,
+    reasoning: str(form, "reasoning"),
+    bookSummaryReasoning: str(form, "bookSummaryReasoning"),
+    readerDailyUsd: str(form, "readerDailyUsd"),
+    globalDailyUsd: str(form, "globalDailyUsd"),
+  });
+  await saveSummarySettings(db, settings);
+  done(
+    "/admin/summaries",
+    settings.model === current.model ? "Saved." : `Saved. Summaries are now written with ${settings.model}; ones cached with the old model are not reused.`,
+  );
+}
+
+/**
+ * Resolves a Spoiler Report. "regenerate" deletes the cached Summary, so the next lookup at that place writes
+ * it again (with the current model and prompt); "dismiss" leaves it.
+ */
+export async function resolveSpoilerReport(form: FormData) {
+  await requireAdmin();
+  const db = getDb();
+  const [report] = await db.select().from(spoilerReports).where(eq(spoilerReports.id, str(form, "id")));
+  if (!report) return done("/admin/reports", "That report is gone.");
+  const regenerate = str(form, "action") === "regenerate";
+  if (regenerate) await getSummaryCache().del(report.cacheKey);
+  // Every open report on the same cached Summary is settled by the same decision.
+  await db
+    .update(spoilerReports)
+    .set({ status: "resolved", resolvedAt: new Date() })
+    .where(and(eq(spoilerReports.cacheKey, report.cacheKey), eq(spoilerReports.status, "open")));
+  done("/admin/reports", regenerate ? "Cleared. The next lookup writes this Summary again." : "Dismissed.");
 }

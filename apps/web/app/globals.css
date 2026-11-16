@@ -165,3 +165,21 @@ tr.flagged td:first-child {
     overflow-x: auto;
   }
 }
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+.admin .report {
+  border-top: 1px solid var(--line);
+  padding: 0.5rem 0 1rem;
+}
+.admin .report h2 {
+  margin-bottom: 0.2rem;
+}
+.admin blockquote {
+  margin: 0.5rem 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--line);
+}

@@ -43,6 +43,8 @@ Google only, invite-only. In Google Cloud, create an OAuth client of type *Web a
 - **Series**: rename, publish (also publishes its Books), and edit Reading Orders (number the Books; leave a box empty to leave a Book out).
 - **Subjects**: search the catalogue, rename, change kind, mark Major, add an Alias, set or clear an Alias's Reveal Chapter, split an Alias into its own Subject, merge another Subject in, delete.
 - **To review**: Aliases that Ingestion flagged as possible secret identities. Confirm the Reveal, change it, or split the Alias off.
+- **Summaries**: the model and reasoning for Summaries, the daily spend caps (per Reader and for everyone), and spend per day.
+- **Reports**: open Spoiler Reports with the Summary the Reader saw. Regenerate clears the cached Summary so the next lookup writes it again; Dismiss keeps it.
 
 Re-ingesting a Book replaces its Chapters, which clears Reveal Chapters set in that Book. Do catalogue fixes once a Book's Ingestion is final. After merging Subjects, refresh their Book Summaries with `pnpm cli ingest … --resummarise`.
 
@@ -53,9 +55,10 @@ Signed-in Readers land on the reader side, built to `docs/design/reader-pocket.m
 - **Series picker** on first sign-in, and from Reading → Series to switch. Each Series keeps its own Reading.
 - **Reading**: choose a Reading Order and tick Finished Books.
 - **Position**: pick the current Book (Change Book) and the last finished Chapter, from the Chapter list or by Quote Search (four or more words, current Book only, returns Chapters, never text).
-- **Look up**: fuzzy and sound-alike search over Aliases mentioned inside the Spoiler Boundary, with kind filters and Lookup History (the last 20 per Reading). A Subject page shows the name, kind and other visible names; Summaries arrive in Phase 4.
+- **Look up**: fuzzy and sound-alike search over Aliases mentioned inside the Spoiler Boundary, with kind filters and Lookup History (the last 20 per Reading). A Subject page shows the name, kind and other visible names, and its Summary.
+- **Summary**: built from the Book Summaries of Finished Books that mention the Subject plus its Passages in the current Book up to the Reading Position (sampled above about 6,000 words). Missing Book Summaries are written on first need, except for a Finished Book with only a few Passages, which go in as they are. Every sentence must cite a source, and a sentence with no citation, a made-up one, or a name the Reader hasn't reached is dropped. Summaries are cached in Redis and shared by every Reader whose boundary shows the same Mentions; only a cache miss costs anything, and misses stop at the daily caps. "Report a spoiler" files a Spoiler Report for the admin.
 
-Every reader query filters on the Spoiler Boundary in SQL (`packages/db/src/reader.ts`), and Draft Books never count. `packages/db/src/reader.test.ts` checks this against a made-up Series in an in-process Postgres (PGlite), so `pnpm test` needs no database.
+Every reader query filters on the Spoiler Boundary in SQL (`packages/db/src/reader.ts` and `summary.ts`), and Draft Books never count. `reader.test.ts` and `summary.test.ts` check this against a made-up Series in an in-process Postgres (PGlite), so `pnpm test` needs no database.
 
 ## Everyday commands
 

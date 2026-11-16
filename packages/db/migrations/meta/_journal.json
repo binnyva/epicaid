@@ -36,6 +36,13 @@
       "when": 1794782944044,
       "tag": "0004_reader_position",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794836178553,
+      "tag": "0005_summaries",
+      "breakpoints": true
     }
   ]
 }

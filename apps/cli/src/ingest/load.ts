@@ -168,6 +168,7 @@ export async function existingBookSummaries(
       and(
         eq(bookSummaries.bookId, bookId),
         eq(bookSummaries.promptVersion, promptVersion),
+        eq(bookSummaries.scope, ""),
         model ? eq(bookSummaries.model, model) : undefined,
       ),
     );

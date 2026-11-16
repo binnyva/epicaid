@@ -2,7 +2,14 @@ import { createHash } from "node:crypto";
 import { canonicalBoundary, type SpoilerBoundary } from "./boundary";
 
 export interface SummaryKeyInput {
+  /** The Subject's id, or the lookup ref ("a-<aliasId>") of an Alias that stands as its own Subject (ADR 0005). */
   subjectId: string;
+  /**
+   * The Aliases whose Mentions the Summary is built from. Which of a Subject's Aliases are joined depends on
+   * which Reveals are inside the boundary, so two boundaries with the same Books can still need different
+   * Summaries. Order does not matter.
+   */
+  aliasIds?: readonly string[];
   boundary: SpoilerBoundary;
   /**
    * Index of the last Chapter in the current Book, at or before the Reading Position,
@@ -29,6 +36,7 @@ export function summaryCacheKey(input: SummaryKeyInput): string {
   const canonical = JSON.stringify({
     finished: boundary.finishedBookIds,
     current,
+    ...(input.aliasIds ? { aliases: [...new Set(input.aliasIds)].sort() } : {}),
     model: input.model,
     prompt: input.promptVersion,
   });

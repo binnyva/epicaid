@@ -1,10 +1,23 @@
 import Link from "next/link";
-import { lookupHistory, parseRef, recordLookup, refToString, resolveTargets } from "@epicaid/db";
+import { cachedSummaryFor, getSummarySettings, lookupHistory, parseRef, recordLookup, refToString, resolveTargets } from "@epicaid/db";
 import { notFound, redirect } from "next/navigation";
 import { getDb } from "@/lib/db";
-import { boundaryChip, requireReading } from "@/lib/reading";
+import { boundaryChip, requireReading, type ReadingContext } from "@/lib/reading";
+import { getSummaryCache } from "@/lib/summary-cache";
 import { Avatar, KIND_LABEL } from "../../_components/bits";
 import { BackIcon } from "../../_components/icons";
+import { SummarySection } from "../../_components/summary-section";
+
+/** "Nothing after Chapter Six of Gardens of the Moon was read." */
+function positionNote(ctx: ReadingContext): string {
+  const book = ctx.currentBook;
+  if (book && !book.finished) {
+    return ctx.lastFinished
+      ? `Nothing after ${ctx.lastFinished.label} of ${book.title} was read.`
+      : `Nothing from ${book.title} was read yet.`;
+  }
+  return "Only your Finished Books were read.";
+}
 
 type Props = { params: Promise<{ ref: string }> };
 
@@ -17,9 +30,14 @@ export default async function SubjectPage({ params }: Props) {
   if (ref && target.ref !== refToString(ref)) redirect(`/subject/${target.ref}`);
 
   await recordLookup(getDb(), ctx.reading.id, target);
-  const recent = (await lookupHistory(getDb(), ctx.reading.id, ctx.series.id, ctx.boundary, 6)).filter(
-    (t) => t.ref !== target.ref,
-  );
+  const [recentAll, settings] = await Promise.all([
+    lookupHistory(getDb(), ctx.reading.id, ctx.series.id, ctx.boundary, 6),
+    getSummarySettings(getDb()),
+  ]);
+  const recent = recentAll.filter((t) => t.ref !== target.ref);
+  // A cached Summary comes with the page and costs nothing; a miss is written from the browser's request, so a
+  // prefetch never spends money.
+  const { entry } = await cachedSummaryFor(getDb(), getSummaryCache(), ctx.boundary, target, settings);
 
   return (
     <div className="screen">
@@ -44,32 +62,31 @@ export default async function SubjectPage({ params }: Props) {
         </div>
       </header>
 
-      <div className="two-col">
-        <div className="card card-pad stack-8 summary-placeholder">
-          <span className="card-title">Summaries are on their way</span>
-          <p className="body-text">
-            Soon this page will tell you what the books have said about {target.name} so far, with every sentence
-            pointing to the Chapter it came from. Nothing past your Reading Position will be used.
-          </p>
-        </div>
-        {recent.length > 0 && (
-          <aside className="card side-card desktop-block" aria-labelledby="side-recent">
-            <span id="side-recent" className="section-label pad-x">
-              Recent
-            </span>
-            <ul className="side-list">
-              {recent.slice(0, 5).map((t) => (
-                <li key={t.ref}>
-                  <Link href={`/subject/${t.ref}`} prefetch={false} className="side-link">
-                    <Avatar name={t.name} />
-                    {t.name}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </aside>
-        )}
-      </div>
+      <SummarySection
+        key={target.ref}
+        targetRef={target.ref}
+        initial={entry}
+        positionNote={positionNote(ctx)}
+        side={
+          recent.length > 0 && (
+            <aside className="card side-card" aria-labelledby="side-recent">
+              <span id="side-recent" className="section-label pad-x">
+                Recent
+              </span>
+              <ul className="side-list">
+                {recent.slice(0, 5).map((t) => (
+                  <li key={t.ref}>
+                    <Link href={`/subject/${t.ref}`} prefetch={false} className="side-link">
+                      <Avatar name={t.name} />
+                      {t.name}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </aside>
+          )
+        }
+      />
     </div>
   );
 }

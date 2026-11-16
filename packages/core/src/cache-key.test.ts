@@ -38,3 +38,12 @@ describe("summaryCacheKey", () => {
     expect(summaryCacheKey(two)).toBe(summaryCacheKey(swapped));
   });
 });
+
+describe("summaryCacheKey with Aliases", () => {
+  it("differs when a Reveal joins another Alias, and ignores Alias order", () => {
+    const one = { ...base, aliasIds: ["a1"] };
+    const two = { ...base, aliasIds: ["a1", "a2"] };
+    expect(summaryCacheKey(one)).not.toBe(summaryCacheKey(two));
+    expect(summaryCacheKey({ ...base, aliasIds: ["a2", "a1"] })).toBe(summaryCacheKey(two));
+  });
+});
