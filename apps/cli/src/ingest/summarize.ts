@@ -5,6 +5,7 @@ import {
   bookSummarySchema,
   bookSummaryUserPrompt,
   type ChatJson,
+  LlmError,
   type LlmUsage,
   type ReasoningEffort,
 } from "@epicaid/core";
@@ -20,6 +21,8 @@ const MAX_WORDS_PER_CALL = 30_000;
 /**
  * A summary is at most ~400 words (~600 tokens of JSON). max_tokens covers reasoning too, so leave room for
  * the thinking each effort level does, and enough at high levels that the model is not cut off mid-thought.
+ * Subjects with many Passages make the model think longer; when a reply is cut off, the client retries that one
+ * call with double the budget (up to 4x), so the extra is only paid where it is needed.
  */
 export function summaryMaxTokens(reasoning: ReasoningEffort): number {
   if (reasoning === "none") return 1500;
@@ -64,9 +67,9 @@ export async function summariseSubjects(options: {
   let written = 0;
   const failed: string[] = [];
   await mapPool(options.subjects, options.concurrency, async ({ merged, subjectId }) => {
+    const items: { chapterLabel: string; text: string }[] = [];
     try {
       const seen = new Set<string>();
-      const items: { chapterLabel: string; text: string }[] = [];
       for (const m of [...merged.mentions].sort((a, b) => a.chapterIndex - b.chapterIndex || a.passageIndex - b.passageIndex)) {
         const key = `${m.chapterIndex}:${m.passageIndex}`;
         if (seen.has(key)) continue;
@@ -114,7 +117,11 @@ export async function summariseSubjects(options: {
     } catch (error) {
       // One bad reply shouldn't stop the rest; re-running retries only the missing ones.
       failed.push(merged.name);
-      options.log(`  FAILED ${merged.name}: ${error instanceof Error ? error.message : String(error)}`);
+      // Failed attempts are still billed: count them in the spend log.
+      if (error instanceof LlmError && error.usage && (error.usage.costUsd > 0 || error.usage.completionTokens > 0)) {
+        await options.onUsage(error.usage);
+      }
+      options.log(`  FAILED ${merged.name} (${items.length} passages): ${error instanceof Error ? error.message : String(error)}`);
     }
   });
   if (failed.length) {
