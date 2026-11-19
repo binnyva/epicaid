@@ -1,4 +1,4 @@
-/** Reads the folder written by scripts/extract_epub.py. */
+/** Reads the folder written by scripts/extract_epub.py or scripts/extract_pdf.py. */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
