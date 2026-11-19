@@ -9,6 +9,7 @@ import { mergeSubjects, passageCount } from "./merge";
 import { chapterParagraphs, splitPassages } from "./passages";
 import { writeReport } from "./report";
 import { summariseSubjects } from "./summarize";
+import { terminalProgress, type ProgressFactory } from "./progress";
 
 export const DEFAULT_MODEL = "deepseek/deepseek-v4-flash-0731";
 /** Extraction is listing names in a short Passage: thinking first mostly burns output tokens. */
@@ -38,6 +39,8 @@ export interface IngestOptions {
   fresh?: boolean;
   /** Injected in tests; otherwise an OpenRouter client is created from OPENROUTER_API_KEY. */
   chatJson?: ChatJson;
+  /** Injected in tests; otherwise bars are drawn on stdout when it is a terminal. */
+  progress?: ProgressFactory;
 }
 
 export async function ingest(options: IngestOptions) {
@@ -83,6 +86,7 @@ export async function ingest(options: IngestOptions) {
       concurrency: options.concurrency,
       onUsage: usageLogger("extraction"),
       log,
+      progress: options.progress ?? terminalProgress(),
     });
 
     const merged = mergeSubjects(extraction);
@@ -127,6 +131,7 @@ export async function ingest(options: IngestOptions) {
         subjects: majors,
         onUsage: usageLogger("book_summary"),
         log,
+        progress: options.progress ?? terminalProgress(),
       });
     }
     log(

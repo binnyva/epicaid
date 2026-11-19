@@ -17,6 +17,7 @@ import {
 } from "@epicaid/core";
 import { slugify } from "./book";
 import { mapPool } from "./pool";
+import { silentProgress, type ProgressFactory } from "./progress";
 
 export type SubjectKind = Extraction["mentions"][number]["kind"];
 
@@ -124,10 +125,13 @@ export async function extractBook(options: {
   concurrency: number;
   onUsage: (usage: LlmUsage) => Promise<void> | void;
   log: (line: string) => void;
+  /** Draws the bar over the Passages that need a model call; cached Chapters don't count. */
+  progress?: ProgressFactory;
 }): Promise<ChapterExtraction[]> {
   const dir = extractionCacheDir(options.bookFolder, options.model);
   await mkdir(dir, { recursive: true });
-  const results: ChapterExtraction[] = [];
+  const results: ChapterExtraction[] = new Array(options.passagesByChapter.length);
+  const todo: { chapterIndex: number; passages: string[]; textHash: string; file: string }[] = [];
   // Read every cache file up front: rewriting one under its new index must not hide it from a later Chapter.
   const caches = await readAllCaches(dir);
   const others: { model: string; caches: ChapterExtraction[] }[] = [];
@@ -146,7 +150,7 @@ export async function extractBook(options: {
     if (hit) {
       const chapter = { ...hit, chapterIndex, textHash };
       if (hit.chapterIndex !== chapterIndex || !hit.textHash) await writeFile(file, JSON.stringify(chapter, null, 1));
-      results.push(chapter);
+      results[chapterIndex] = chapter;
       continue;
     }
     // Another model's extraction of the same text. Used as it is and left in that model's folder, so each
@@ -155,29 +159,46 @@ export async function extractBook(options: {
       .map((o) => ({ model: o.model, hit: o.caches.find((c) => cacheMatches(c, passages, textHash)) }))
       .find((o) => o.hit);
     if (other?.hit) {
-      results.push({ ...other.hit, chapterIndex, textHash });
+      results[chapterIndex] = { ...other.hit, chapterIndex, textHash };
       reused.set(other.model, (reused.get(other.model) ?? 0) + 1);
       continue;
     }
-    const extracted = await mapPool(passages, options.concurrency, async (text, passageIndex) => {
-      const { data, usage } = await options.chatJson({
-        model: options.model,
-        system: EXTRACTION_SYSTEM,
-        user: extractionUserPrompt(text),
-        schema: extractionSchema,
-        schemaName: "passage_index",
-        reasoning: options.reasoning,
-      });
-      await options.onUsage(usage);
-      return cleanExtraction(text, data, passageIndex);
-    });
-    const chapter: ChapterExtraction = { chapterIndex, passageCount: passages.length, textHash, passages: extracted };
-    await writeFile(file, JSON.stringify(chapter, null, 1));
-    options.log(`  extracted chapter ${chapterIndex} (${passages.length} passages)`);
-    results.push(chapter);
+    todo.push({ chapterIndex, passages, textHash, file });
   }
   for (const [model, count] of reused) {
     options.log(`  reused ${count} Chapter${count === 1 ? "" : "s"} extracted by ${model} (pass --fresh to redo them)`);
+  }
+
+  const cached = options.passagesByChapter.length - todo.length;
+  if (cached) options.log(`  ${cached} of ${options.passagesByChapter.length} Chapters already extracted`);
+  if (!todo.length) return results;
+  const bar = (options.progress ?? silentProgress(options.log))(
+    "Extracting",
+    todo.reduce((n, t) => n + t.passages.length, 0),
+    "passages",
+  );
+  try {
+    for (const { chapterIndex, passages, textHash, file } of todo) {
+      const extracted = await mapPool(passages, options.concurrency, async (text, passageIndex) => {
+        const { data, usage } = await options.chatJson({
+          model: options.model,
+          system: EXTRACTION_SYSTEM,
+          user: extractionUserPrompt(text),
+          schema: extractionSchema,
+          schemaName: "passage_index",
+          reasoning: options.reasoning,
+        });
+        await options.onUsage(usage);
+        bar.tick();
+        return cleanExtraction(text, data, passageIndex);
+      });
+      const chapter: ChapterExtraction = { chapterIndex, passageCount: passages.length, textHash, passages: extracted };
+      await writeFile(file, JSON.stringify(chapter, null, 1));
+      bar.log(`  extracted chapter ${chapterIndex} (${passages.length} passages)`);
+      results[chapterIndex] = chapter;
+    }
+  } finally {
+    bar.done();
   }
   return results;
 }
