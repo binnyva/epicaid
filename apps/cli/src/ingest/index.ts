@@ -37,6 +37,8 @@ export interface IngestOptions {
    * Off by default, so switching models only pays for what no model has done yet.
    */
   fresh?: boolean;
+  /** Load the Book even if some Passages failed extraction, leaving those Passages without Mentions. */
+  skipFailed?: boolean;
   /** Injected in tests; otherwise an OpenRouter client is created from OPENROUTER_API_KEY. */
   chatJson?: ChatJson;
   /** Injected in tests; otherwise bars are drawn on stdout when it is a terminal. */
@@ -75,8 +77,8 @@ export async function ingest(options: IngestOptions) {
   };
 
   try {
-    log(`Extracting with ${options.model}, reasoning ${options.reasoning} (cached per Chapter, safe to re-run)…`);
-    const extraction = await extractBook({
+    log(`Extracting with ${options.model}, reasoning ${options.reasoning} (cached as it goes, safe to re-run)…`);
+    const { chapters: extraction, failed } = await extractBook({
       bookFolder: book.folder,
       passagesByChapter,
       chatJson,
@@ -88,6 +90,19 @@ export async function ingest(options: IngestOptions) {
       log,
       progress: options.progress ?? terminalProgress(),
     });
+    if (failed.length) {
+      log(`${failed.length} Passage${failed.length === 1 ? "" : "s"} failed extraction (each was tried twice):`);
+      for (const f of failed) log(`  chapter ${f.chapterIndex}, passage ${f.passageIndex}: ${f.error}`);
+      if (!options.skipFailed) {
+        log(
+          `Spent $${spend.toFixed(4)}. Everything else is cached: re-run the same command to retry only these, ` +
+            "or add --skip-failed to load the Book without them.",
+        );
+        process.exitCode = 1;
+        return;
+      }
+      log("Going on without them (--skip-failed). Re-run later without the flag to fill them in.");
+    }
 
     const merged = mergeSubjects(extraction);
     const { subjects } = merged;

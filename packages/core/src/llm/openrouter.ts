@@ -60,6 +60,8 @@ export class LlmError extends Error {
 }
 /** An error that retrying will not fix, such as a bad API key or an unknown model. */
 export class LlmFatalError extends LlmError {}
+/** The reply hit max_tokens and the budget could not grow, e.g. a model stuck repeating itself. */
+export class LlmCutOffError extends LlmError {}
 
 interface OpenRouterResponse {
   model?: string;
@@ -167,7 +169,7 @@ export function createOpenRouterClient(options: {
 
         if (finishReason === "length") {
           // The model ran out of max_tokens, usually while reasoning, so the answer is missing or half written.
-          lastError = new LlmError(
+          lastError = new LlmCutOffError(
             `Reply cut off at max_tokens ${maxTokens ?? "(provider limit)"}${content ? " partway through the answer" : " before it started answering"}`,
           );
           // The same budget would be cut off again: grow it, or stop if it can't grow.

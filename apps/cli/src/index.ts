@@ -28,6 +28,8 @@ Options for ingest:
   --concurrency <n>          Parallel model calls (default: 8)
   --major <n>                Passages needed to count as a Major Subject (default: 25)
   --passage-words <n>        Target Passage size in words (default: 350)
+  --skip-failed              Load the Book even if a few Passages failed extraction (they get no
+                             Mentions; a later run without the flag retries them)
   --skip-summaries           Load the catalogue without writing Book Summaries
   --resummarise              Rewrite Book Summaries that already exist
   --fresh                    Ignore work other models did. By default a Chapter or Book Summary that
@@ -78,6 +80,7 @@ const { positionals, values } = parseArgs({
     concurrency: { type: "string", default: "8" },
     major: { type: "string", default: "25" },
     "passage-words": { type: "string", default: "350" },
+    "skip-failed": { type: "boolean", default: false },
     "skip-summaries": { type: "boolean", default: false },
     resummarise: { type: "boolean", default: false },
     fresh: { type: "boolean", default: false },
@@ -125,6 +128,7 @@ switch (command) {
       majorThreshold: Number(values.major),
       passageWords: Number(values["passage-words"]),
       dryRun: values["dry-run"],
+      skipFailed: values["skip-failed"],
       skipSummaries: values["skip-summaries"],
       resummarise: values.resummarise,
       fresh: values.fresh,

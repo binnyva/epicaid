@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { createOpenRouterClient, LlmError, LlmFatalError, parseJsonReply } from "./openrouter";
+import { createOpenRouterClient, LlmCutOffError, LlmError, LlmFatalError, parseJsonReply } from "./openrouter";
 
 const schema = z.strictObject({ answer: z.string() });
 const reply = (status: number, body: unknown) =>
@@ -84,6 +84,15 @@ describe("createOpenRouterClient", () => {
     expect(sent.map((b) => (b as { max_tokens: number }).max_tokens)).toEqual([1000, 2000, 4000]);
     expect(result.usage.completionTokens).toBe(202);
     expect(result.usage.costUsd).toBeCloseTo(0.0204);
+  });
+
+  it("makes one call only when the ceiling equals max_tokens, and says it was cut off", async () => {
+    const cut = reply(200, { choices: [{ finish_reason: "length", message: { content: '{"answer":"aaaa' } }], usage: { completion_tokens: 50, cost: 0.005 } });
+    const { fn, sent } = fakeFetch(cut, ok('{"answer":"never"}'));
+    const chat = createOpenRouterClient({ apiKey: "k", fetch: fn });
+    const error = await chat({ ...request, maxTokens: 50, maxTokensCeiling: 50 }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(LlmCutOffError);
+    expect(sent).toHaveLength(1);
   });
 
   it("stops at the ceiling instead of paying again for a reply that will be cut off the same way", async () => {

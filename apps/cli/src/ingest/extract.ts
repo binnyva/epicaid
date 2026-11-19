@@ -1,15 +1,19 @@
 /**
  * Extraction stage: one LLM call per Passage, cached on disk per Chapter so a re-run
  * (after a crash, or to re-load the database) never pays for the same Passage twice.
+ * A Chapter still in progress is cached per Passage in a .partial.json file, so a crash or a failed
+ * Passage only costs the Passages that were not finished.
  */
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   EXTRACTION_PROMPT_VERSION,
   EXTRACTION_SYSTEM,
   extractionSchema,
   extractionUserPrompt,
+  LlmError,
+  LlmFatalError,
   type ChatJson,
   type Extraction,
   type LlmUsage,
@@ -33,6 +37,30 @@ export interface ChapterExtraction {
   /** sha256 of the Chapter's Passages. Missing in caches written before it existed. */
   textHash?: string;
   passages: PassageExtraction[];
+}
+
+/**
+ * Output cap for one Passage. The largest extraction in Books 1 to 9 is about 700 tokens, so this leaves
+ * room, and a model that gets stuck repeating itself is stopped here instead of at the provider's limit
+ * (131k tokens, about $0.05 a time).
+ */
+export const EXTRACTION_MAX_TOKENS = 2048;
+/** A retry at temperature 0 tends to fall into the same loop; a little randomness gets it out. */
+const RETRY_TEMPERATURE = 0.4;
+/** More failures than this means something is wrong beyond one odd Passage, so stop spending. */
+export const DEFAULT_MAX_FAILED_PASSAGES = 20;
+
+export interface FailedPassage {
+  chapterIndex: number;
+  passageIndex: number;
+  error: string;
+}
+
+/** A Chapter still being extracted: the Passages done so far, null where not done yet. */
+interface PartialChapter {
+  chapterIndex: number;
+  textHash: string;
+  passages: (PassageExtraction | null)[];
 }
 
 const squash = (s: string) => s.toLowerCase().replace(/[’']/g, "'").replace(/\s+/g, " ").trim();
@@ -97,8 +125,18 @@ export function cacheMatches(cached: ChapterExtraction, passages: string[], hash
   return names > 0;
 }
 
+async function readPartial(file: string, textHash: string, count: number): Promise<(PassageExtraction | null)[]> {
+  try {
+    const partial = JSON.parse(await readFile(file, "utf8")) as PartialChapter;
+    if (partial.textHash === textHash && partial.passages.length === count) return partial.passages;
+  } catch {
+    // Missing, or half-written in a crash: start the Chapter over.
+  }
+  return new Array<PassageExtraction | null>(count).fill(null);
+}
+
 async function readAllCaches(dir: string): Promise<ChapterExtraction[]> {
-  const files = (await readdir(dir)).filter((f) => f.endsWith(".json"));
+  const files = (await readdir(dir)).filter((f) => f.endsWith(".json") && !f.endsWith(".partial.json"));
   const out: ChapterExtraction[] = [];
   for (const f of files) {
     try {
@@ -127,11 +165,20 @@ export async function extractBook(options: {
   log: (line: string) => void;
   /** Draws the bar over the Passages that need a model call; cached Chapters don't count. */
   progress?: ProgressFactory;
-}): Promise<ChapterExtraction[]> {
+  /** Stop the run once more Passages than this have failed (default 20). */
+  maxFailed?: number;
+}): Promise<{ chapters: ChapterExtraction[]; failed: FailedPassage[] }> {
   const dir = extractionCacheDir(options.bookFolder, options.model);
   await mkdir(dir, { recursive: true });
   const results: ChapterExtraction[] = new Array(options.passagesByChapter.length);
-  const todo: { chapterIndex: number; passages: string[]; textHash: string; file: string }[] = [];
+  const todo: {
+    chapterIndex: number;
+    passages: string[];
+    textHash: string;
+    file: string;
+    partialFile: string;
+    done: (PassageExtraction | null)[];
+  }[] = [];
   // Read every cache file up front: rewriting one under its new index must not hide it from a later Chapter.
   const caches = await readAllCaches(dir);
   const others: { model: string; caches: ChapterExtraction[] }[] = [];
@@ -163,7 +210,9 @@ export async function extractBook(options: {
       reused.set(other.model, (reused.get(other.model) ?? 0) + 1);
       continue;
     }
-    todo.push({ chapterIndex, passages, textHash, file });
+    const partialFile = file.replace(/\.json$/, ".partial.json");
+    const done = await readPartial(partialFile, textHash, passages.length);
+    todo.push({ chapterIndex, passages, textHash, file, partialFile, done });
   }
   for (const [model, count] of reused) {
     options.log(`  reused ${count} Chapter${count === 1 ? "" : "s"} extracted by ${model} (pass --fresh to redo them)`);
@@ -171,34 +220,107 @@ export async function extractBook(options: {
 
   const cached = options.passagesByChapter.length - todo.length;
   if (cached) options.log(`  ${cached} of ${options.passagesByChapter.length} Chapters already extracted`);
-  if (!todo.length) return results;
+  const resumed = todo.reduce((n, t) => n + t.done.filter(Boolean).length, 0);
+  if (resumed) options.log(`  ${resumed} Passages of unfinished Chapters already extracted`);
+  const failed: FailedPassage[] = [];
+  if (!todo.length) return { chapters: results, failed };
+  const maxFailed = options.maxFailed ?? DEFAULT_MAX_FAILED_PASSAGES;
   const bar = (options.progress ?? silentProgress(options.log))(
     "Extracting",
-    todo.reduce((n, t) => n + t.passages.length, 0),
+    todo.reduce((n, t) => n + t.done.filter((d) => !d).length, 0),
     "passages",
   );
-  try {
-    for (const { chapterIndex, passages, textHash, file } of todo) {
-      const extracted = await mapPool(passages, options.concurrency, async (text, passageIndex) => {
-        const { data, usage } = await options.chatJson({
-          model: options.model,
-          system: EXTRACTION_SYSTEM,
-          user: extractionUserPrompt(text),
-          schema: extractionSchema,
-          schemaName: "passage_index",
-          reasoning: options.reasoning,
-        });
-        await options.onUsage(usage);
-        bar.tick();
-        return cleanExtraction(text, data, passageIndex);
+
+  const call = async (text: string, temperature: number) => {
+    try {
+      const { data, usage } = await options.chatJson({
+        model: options.model,
+        system: EXTRACTION_SYSTEM,
+        user: extractionUserPrompt(text),
+        schema: extractionSchema,
+        schemaName: "passage_index",
+        reasoning: options.reasoning,
+        temperature,
+        maxTokens: EXTRACTION_MAX_TOKENS,
+        // Never grow the budget: a Passage that needs more than this is a model stuck in a loop.
+        maxTokensCeiling: EXTRACTION_MAX_TOKENS,
       });
-      const chapter: ChapterExtraction = { chapterIndex, passageCount: passages.length, textHash, passages: extracted };
+      await options.onUsage(usage);
+      return data;
+    } catch (error) {
+      // Failed attempts are billed too.
+      if (error instanceof LlmError && error.usage && (error.usage.costUsd > 0 || error.usage.completionTokens > 0)) {
+        await options.onUsage(error.usage);
+      }
+      throw error;
+    }
+  };
+
+  // Set when the run is stopping, so the other workers don't start new calls.
+  let stopping = false;
+  try {
+    for (const { chapterIndex, passages, textHash, file, partialFile, done } of todo) {
+      let saving = Promise.resolve();
+      const savePartial = () => {
+        const body = JSON.stringify({ chapterIndex, textHash, passages: done } satisfies PartialChapter);
+        saving = saving.then(() => writeFile(partialFile, body));
+        return saving;
+      };
+      const chapterFailed: FailedPassage[] = [];
+      await mapPool(passages, options.concurrency, async (text, passageIndex) => {
+        if (done[passageIndex] || stopping) return;
+        let data: Extraction;
+        try {
+          data = await call(text, 0).catch((error: unknown) => {
+            if (error instanceof LlmFatalError) throw error;
+            return call(text, RETRY_TEMPERATURE);
+          });
+        } catch (error) {
+          if (error instanceof LlmFatalError) {
+            stopping = true;
+            throw error;
+          }
+          const message = error instanceof Error ? error.message : String(error);
+          const entry = { chapterIndex, passageIndex, error: message };
+          chapterFailed.push(entry);
+          failed.push(entry);
+          bar.log(`  passage ${passageIndex} of chapter ${chapterIndex} failed twice, skipped for now: ${message}`);
+          bar.tick();
+          if (failed.length > maxFailed) {
+            stopping = true;
+            throw new Error(`${failed.length} Passages failed, stopping. Finished Passages are cached; re-run to continue.`);
+          }
+          return;
+        }
+        done[passageIndex] = cleanExtraction(text, data, passageIndex);
+        bar.tick();
+        await savePartial();
+      });
+      await saving;
+      if (chapterFailed.length) {
+        // Keep the partial file so a re-run only retries the failed Passages. Fill the gaps with empty
+        // extractions so the run can still go on when the caller allows it.
+        results[chapterIndex] = {
+          chapterIndex,
+          passageCount: passages.length,
+          textHash,
+          passages: done.map((d, passageIndex) => d ?? { passageIndex, mentions: [], sameEntity: [] }),
+        };
+        continue;
+      }
+      const chapter: ChapterExtraction = {
+        chapterIndex,
+        passageCount: passages.length,
+        textHash,
+        passages: done as PassageExtraction[],
+      };
       await writeFile(file, JSON.stringify(chapter, null, 1));
+      await rm(partialFile, { force: true });
       bar.log(`  extracted chapter ${chapterIndex} (${passages.length} passages)`);
       results[chapterIndex] = chapter;
     }
   } finally {
     bar.done();
   }
-  return results;
+  return { chapters: results, failed };
 }
