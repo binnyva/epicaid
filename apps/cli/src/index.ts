@@ -7,12 +7,17 @@ import { createDb, eq, schema, sql } from "@epicaid/db";
 import { createNodeDb } from "@epicaid/db/node";
 import { parseReasoningEffort } from "@epicaid/core";
 import { DEFAULT_EXTRACTION_REASONING, DEFAULT_MODEL, DEFAULT_SUMMARY_REASONING, ingest } from "./ingest";
+import { summariseMissing } from "./summarise";
 
 const usage = `Usage: pnpm cli <command>
 
 Commands:
   check                      Connect to the database and confirm migrations have run
   ingest <book-folder>       Ingest an extracted Book (see README) into a Series, as a Draft
+  summarise                  Write the Book Summaries a Series is missing (Major Subjects without one),
+                             from the database. Unlike re-ingesting, leaves Chapters and Reveal Chapters alone.
+                             Takes --series (required), --book <slug>, --summary-model, --summary-reasoning,
+                             --concurrency, --major and --dry-run (lists them, no model calls)
   delete-series <slug> --yes Delete a Draft Series and everything in it (re-ingesting reuses the
                              extraction cache, so this costs nothing to undo except Book Summaries)
 
@@ -85,6 +90,7 @@ const { positionals, values } = parseArgs({
     resummarise: { type: "boolean", default: false },
     fresh: { type: "boolean", default: false },
     "dry-run": { type: "boolean", default: false },
+    book: { type: "string" },
     yes: { type: "boolean", default: false },
   },
 });
@@ -102,6 +108,26 @@ switch (command) {
       await deleteSeries(target);
     }
     break;
+  case "summarise": {
+    if (!values.series) {
+      console.error(usage);
+      process.exitCode = 1;
+      break;
+    }
+    await summariseMissing({
+      seriesSlug: values.series,
+      bookSlug: values.book,
+      model: values["summary-model"] ?? process.env.SUMMARY_MODEL ?? values.model ?? process.env.EXTRACTION_MODEL ?? DEFAULT_MODEL,
+      reasoning: parseReasoningEffort(
+        values["summary-reasoning"] ?? process.env.SUMMARY_REASONING ?? DEFAULT_SUMMARY_REASONING,
+        "--summary-reasoning",
+      ),
+      concurrency: Number(values.concurrency),
+      majorThreshold: Number(values.major),
+      dryRun: values["dry-run"],
+    });
+    break;
+  }
   case "ingest": {
     if (!target || !values.series) {
       console.error(usage);
