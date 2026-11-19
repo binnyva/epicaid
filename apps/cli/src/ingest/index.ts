@@ -62,18 +62,35 @@ export async function ingest(options: IngestOptions) {
   const chatJson = options.chatJson ?? createOpenRouterClient({ apiKey: apiKey as string });
   const { db, close } = createNodeDb();
   let spend = 0;
+  /** Spend the database could not record; reported at the end so the admin spend view can be squared. */
+  let unlogged = 0;
   const tokens = { completion: 0, reasoning: 0 };
   const usageLogger = (purpose: "extraction" | "book_summary") => async (usage: LlmUsage) => {
     spend += usage.costUsd;
     tokens.completion += usage.completionTokens;
     tokens.reasoning += usage.reasoningTokens;
-    await db.insert(schema.spendLog).values({
+    const row = {
       purpose,
       model: usage.model,
       promptTokens: usage.promptTokens,
       completionTokens: usage.completionTokens,
       costUsd: usage.costUsd.toFixed(6),
-    });
+    };
+    // A dropped database connection must not throw away a model call that has already been paid for.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await db.insert(schema.spendLog).values(row);
+        return;
+      } catch (error) {
+        if (attempt < 3) {
+          await new Promise((r) => setTimeout(r, 1000 * attempt));
+          continue;
+        }
+        unlogged += usage.costUsd;
+        console.warn(`  (could not record spend in the database: ${error instanceof Error ? error.message : error})`);
+        return;
+      }
+    }
   };
 
   try {
@@ -153,6 +170,7 @@ export async function ingest(options: IngestOptions) {
       `Done. Spent $${spend.toFixed(4)} on this run (cached Chapters cost nothing). ` +
         `Output tokens: ${tokens.completion.toLocaleString()}, of which reasoning: ${tokens.reasoning.toLocaleString()}.`,
     );
+    if (unlogged) log(`$${unlogged.toFixed(4)} of that could not be written to the spend log (database unreachable).`);
   } finally {
     await close();
   }
